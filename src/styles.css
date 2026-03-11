@@ -1,0 +1,48 @@
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --card: rgba(255, 255, 255, 0.06);
+  --card-2: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.12);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --text: rgba(255, 255, 255, 0.88);
+  --text-strong: rgba(255, 255, 255, 0.95);
+  --muted: rgba(255, 255, 255, 0.62);
+
+  --accent: #60a5fa;
+  --accent-2: #a78bfa;
+  --warn: #fbbf24;
+  --danger: #fb7185;
+
+  --routing-rpc: var(--accent-2);
+  --routing-message: var(--accent);
+  --routing-tool: var(--warn);
+  --routing-other: var(--muted);
+  --routing-node-fill: rgba(10, 12, 18, 0.75);
+  --routing-node-stroke: var(--border-strong);
+
+  --radius: 12px;
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+    monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  background: radial-gradient(900px 600px at 25% -10%, rgba(167, 139, 250, 0.22), transparent),
+    radial-gradient(900px 600px at 85% 0%, rgba(96, 165, 250, 0.16), transparent), var(--bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
