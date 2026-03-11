@@ -17,12 +17,13 @@ import {
 
 const STORAGE_GATEWAY_URL = "openclaw.routingGraph.gatewayUrl";
 const STORAGE_TOKEN = "openclaw.routingGraph.token";
+const STORAGE_PASSWORD = "openclaw.routingGraph.password";
 
 const EVENT_BUFFER_LIMIT = 500;
 const EVENT_LIST_LIMIT = 60;
 const SYNC_THROTTLE_MS = 80;
 
-function readStorage(key: string): string {
+function readLocalStorage(key: string): string {
   try {
     return window.localStorage.getItem(key) ?? "";
   } catch {
@@ -30,9 +31,25 @@ function readStorage(key: string): string {
   }
 }
 
-function writeStorage(key: string, value: string) {
+function writeLocalStorage(key: string, value: string) {
   try {
     window.localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+}
+
+function readSessionStorage(key: string): string {
+  try {
+    return window.sessionStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeSessionStorage(key: string, value: string) {
+  try {
+    window.sessionStorage.setItem(key, value);
   } catch {
     // ignore
   }
@@ -49,6 +66,7 @@ export class RoutingGraphApp extends LitElement {
   static properties = {
     gatewayUrl: { state: true },
     token: { state: true },
+    password: { state: true },
     connected: { state: true },
     paused: { state: true },
     scope: { state: true },
@@ -314,8 +332,9 @@ export class RoutingGraphApp extends LitElement {
 
   hello: GatewayHelloOk | null = null;
   lastError: string | null = null;
-  gatewayUrl = readStorage(STORAGE_GATEWAY_URL) || "ws://127.0.0.1:18789";
-  token = readStorage(STORAGE_TOKEN) || "";
+  gatewayUrl = readLocalStorage(STORAGE_GATEWAY_URL) || "ws://127.0.0.1:18789";
+  token = readSessionStorage(STORAGE_TOKEN) || "";
+  password = readSessionStorage(STORAGE_PASSWORD) || "";
   connected = false;
   paused = false;
   scope: "all" | "session" = "all";
@@ -354,13 +373,15 @@ export class RoutingGraphApp extends LitElement {
 
   private connect() {
     this.lastError = null;
-    writeStorage(STORAGE_GATEWAY_URL, this.gatewayUrl);
-    writeStorage(STORAGE_TOKEN, this.token);
+    writeLocalStorage(STORAGE_GATEWAY_URL, this.gatewayUrl);
+    writeSessionStorage(STORAGE_TOKEN, this.token);
+    writeSessionStorage(STORAGE_PASSWORD, this.password);
 
     this.client?.stop();
     this.client = new GatewayWsClient({
       url: this.gatewayUrl,
       token: this.token || undefined,
+      password: this.password || undefined,
       clientId: "openclaw-probe",
       clientMode: "probe",
       clientVersion: "routing-graph",
@@ -565,7 +586,7 @@ export class RoutingGraphApp extends LitElement {
       </div>
 
       <section class="card">
-        <div class="grid">
+        <div class="grid" style="grid-template-columns: repeat(4, minmax(0, 1fr));">
           <label>
             Gateway URL
             <input
@@ -583,6 +604,17 @@ export class RoutingGraphApp extends LitElement {
               .value=${this.token}
               @input=${(e: Event) => (this.token = (e.target as HTMLInputElement).value)}
               placeholder="operator token (admin scope)"
+              spellcheck="false"
+            />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              .value=${this.password}
+              @input=${(e: Event) => (this.password = (e.target as HTMLInputElement).value)}
+              placeholder="gateway password (optional)"
               spellcheck="false"
             />
           </label>
