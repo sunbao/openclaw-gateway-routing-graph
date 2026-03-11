@@ -332,7 +332,24 @@ export class RoutingGraphApp extends LitElement {
 
   hello: GatewayHelloOk | null = null;
   lastError: string | null = null;
-  gatewayUrl = readLocalStorage(STORAGE_GATEWAY_URL) || "ws://127.0.0.1:18789";
+  gatewayUrl = (() => {
+    const saved = readLocalStorage(STORAGE_GATEWAY_URL).trim();
+    if (saved) return saved;
+
+    const wsScheme = window.location.protocol === "https:" ? "wss" : "ws";
+    const host = window.location.hostname.toLowerCase();
+    const isLoopback = host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+
+    if (isLoopback) {
+      // Local gateway or SSH tunnel (recommended).
+      return "ws://127.0.0.1:18789";
+    }
+
+    // When served from a remote host, many gateways reject cross-origin browser
+    // WebSockets (403 -> client sees close 1006). Prefer a same-origin proxy if
+    // available.
+    return `${wsScheme}://${window.location.host}/__routing_graph/ws`;
+  })();
   token = readSessionStorage(STORAGE_TOKEN) || "";
   password = readSessionStorage(STORAGE_PASSWORD) || "";
   connected = false;
@@ -382,8 +399,9 @@ export class RoutingGraphApp extends LitElement {
       url: this.gatewayUrl,
       token: this.token || undefined,
       password: this.password || undefined,
-      clientId: "openclaw-probe",
-      clientMode: "probe",
+      // `cli` is the most widely accepted client identity across gateway forks.
+      clientId: "cli",
+      clientMode: "cli",
       clientVersion: "routing-graph",
       displayName: "Routing Graph",
       onHello: (hello) => {

@@ -114,7 +114,9 @@ export class GatewayWsClient {
   }
 
   private sendConnect() {
-    const scopes = ["operator.admin", "operator.approvals", "operator.pairing"];
+    // Keep scopes minimal. Some gateway forks validate scope names and will
+    // reject unknown scopes during connect.
+    const scopes = ["operator.admin"];
     const role = "operator";
     const token = this.opts.token?.trim() || undefined;
     const password = this.opts.password?.trim() || undefined;
@@ -130,11 +132,11 @@ export class GatewayWsClient {
       minProtocol: 3,
       maxProtocol: 3,
       client: {
-        id: (this.opts.clientId ?? "openclaw-probe").trim(),
+        id: (this.opts.clientId ?? "cli").trim(),
         displayName: this.opts.displayName?.trim() || undefined,
         version: (this.opts.clientVersion ?? "routing-graph").trim(),
         platform: navigator.platform || "web",
-        mode: (this.opts.clientMode ?? "probe").trim(),
+        mode: (this.opts.clientMode ?? "cli").trim(),
         instanceId: this.opts.instanceId?.trim() || undefined,
       },
       role,

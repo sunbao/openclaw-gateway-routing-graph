@@ -5,14 +5,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "serve": "node server/serve-dist.cjs",
+    "serve:build": "vite build && node server/serve-dist.cjs"
   },
   "dependencies": {
-    "lit": "^3.3.2"
+    "lit": "^3.3.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "typescript": "^5.8.2",
     "vite": "7.3.1"
   }
 }
-
