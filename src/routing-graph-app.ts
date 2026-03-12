@@ -64,6 +64,18 @@ function trimEvents(events: GatewayTraceEvent[]): GatewayTraceEvent[] {
   return events.slice(0, EVENT_BUFFER_LIMIT);
 }
 
+function safeJson(value: unknown, maxChars = 2400): string {
+  try {
+    const raw = JSON.stringify(value, null, 2) ?? "";
+    if (raw.length <= maxChars) {
+      return raw;
+    }
+    return `${raw.slice(0, maxChars)}\n…(truncated)`;
+  } catch {
+    return String(value);
+  }
+}
+
 export class RoutingGraphApp extends LitElement {
   static properties = {
     gatewayUrl: { state: true },
@@ -285,6 +297,35 @@ export class RoutingGraphApp extends LitElement {
       stroke-linejoin: round;
     }
 
+    .graph-summary {
+      margin-top: 10px;
+      display: grid;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .graph-summary-title {
+      font-family: var(--sans);
+      font-weight: 900;
+      color: var(--text-strong);
+      font-size: 12px;
+      letter-spacing: 0.2px;
+    }
+
+    .graph-summary-row {
+      display: flex;
+      gap: 8px;
+      align-items: baseline;
+      flex-wrap: wrap;
+    }
+
+    .graph-summary-kind {
+      font-weight: 900;
+      color: var(--text-strong);
+    }
+
     .events {
       margin-top: 12px;
       display: grid;
@@ -322,6 +363,51 @@ export class RoutingGraphApp extends LitElement {
       font-family: var(--mono);
       font-size: 12px;
       color: var(--text);
+    }
+
+    .event-route {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: baseline;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .event-arrow {
+      color: var(--muted);
+      font-weight: 900;
+    }
+
+    .event-meta {
+      margin-top: 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    details.event-details {
+      margin-top: 8px;
+    }
+
+    details.event-details summary {
+      cursor: pointer;
+      color: var(--text-strong);
+      font-weight: 900;
+      font-family: var(--sans);
+      font-size: 12px;
+    }
+
+    details.event-details pre {
+      margin: 8px 0 0;
+      padding: 10px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--field-bg);
+      color: var(--text);
+      overflow: auto;
+      max-height: 260px;
     }
 
     @media (max-width: 980px) {
@@ -368,7 +454,12 @@ export class RoutingGraphApp extends LitElement {
     const attr = document.documentElement.dataset.theme;
     return attr === "dark" ? "dark" : "light";
   })();
-  autoHealth = readLocalStorage(STORAGE_AUTO_HEALTH).trim() === "1";
+  autoHealth = (() => {
+    const saved = readLocalStorage(STORAGE_AUTO_HEALTH).trim();
+    if (saved === "0") return false;
+    if (saved === "1") return true;
+    return true;
+  })();
   scope: "all" | "session" = "all";
   sessionKey = "";
   windowMs = 5_000;
@@ -560,6 +651,9 @@ export class RoutingGraphApp extends LitElement {
         ]);
         this.scheduleSync(true);
 
+        // Kick a first health request so the graph is never "empty" right after connect.
+        void this.requestHealth();
+
         if (this.autoHealth) {
           this.startAutoHealth();
         }
@@ -629,76 +723,110 @@ export class RoutingGraphApp extends LitElement {
     const { nodes, edges, nodeByKey } = buildGraph(filtered, now);
 
     if (edges.length === 0) {
-      return html`<div class="graph"><div style="padding: 16px; color: var(--muted);">No routing events in the current window.</div></div>`;
+      return html`
+        <div class="graph">
+          <div style="padding: 16px; color: var(--muted);">
+            No routing edges in the current window.
+            <div style="margin-top: 8px; font-family: var(--mono); font-size: 12px;">
+              ${filtered.length} events in window · try “Ping health” or enable “Auto health”
+            </div>
+          </div>
+        </div>
+      `;
     }
 
+    const previewRows = edges.slice(0, 12).map((edge) => {
+      const from = nodeByKey.get(edge.fromKey);
+      const to = nodeByKey.get(edge.toKey);
+      if (!from || !to) {
+        return nothing;
+      }
+      return html`
+        <div class="graph-summary-row">
+          <span class="graph-summary-kind">${edge.kind}</span>
+          <span>(${edge.count})</span>
+          <span>${from.label}</span>
+          <span>→</span>
+          <span>${to.label}</span>
+          ${edge.label ? html`<span>— ${edge.label}</span>` : nothing}
+        </div>
+      `;
+    });
+
     return html`
-      <div class="graph">
-        <svg viewBox="0 0 ${GRAPH_W} ${GRAPH_H}" preserveAspectRatio="xMidYMid meet">
-          <defs>
-            <marker
-              id="routingArrow"
-              viewBox="0 0 10 10"
-              refX="9"
-              refY="5"
-              markerWidth="5"
-              markerHeight="5"
-              orient="auto-start-reverse"
-            >
-              <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
-            </marker>
-          </defs>
-
-          ${edges.map((edge) => {
-            const from = nodeByKey.get(edge.fromKey);
-            const to = nodeByKey.get(edge.toKey);
-            if (!from || !to) return nothing;
-            const ageMs = now - edge.lastTs;
-            const freshness = 1 - clamp(ageMs / this.windowMs, 0, 1);
-            const opacity = 0.15 + freshness * 0.85;
-            const width = 1 + Math.log10(edge.count + 1) * 2.5;
-            const x1 = from.x;
-            const y1 = from.y;
-            const x2 = to.x;
-            const y2 = to.y;
-            const midX = (x1 + x2) / 2;
-            const bend = clamp((x2 - x1) / 6, -60, 60);
-            const cx1 = midX - bend;
-            const cx2 = midX + bend;
-            const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
-            const color = colorForEventKind(edge.kind);
-            return html`
-              <path
-                class="routing-edge"
-                d=${d}
-                stroke=${color}
-                style=${`color: ${color};`}
-                stroke-width=${width}
-                stroke-opacity=${opacity}
-                fill="none"
-                marker-end="url(#routingArrow)"
+      <div>
+        <div class="graph">
+          <svg viewBox="0 0 ${GRAPH_W} ${GRAPH_H}" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <marker
+                id="routingArrow"
+                viewBox="0 0 10 10"
+                refX="9"
+                refY="5"
+                markerWidth="5"
+                markerHeight="5"
+                orient="auto-start-reverse"
               >
-                <title>${formatEdgeTitle(edge, from, to)}</title>
-              </path>
-            `;
-          })}
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+              </marker>
+            </defs>
 
-          ${nodes.map((node) => {
-            const r = 10 + clamp(Math.log10(node.activity + 1) * 4, 0, 8);
-            const textAnchor = node.x < GRAPH_W / 2 ? "start" : "end";
-            const textX = node.x < GRAPH_W / 2 ? node.x + r + 8 : node.x - r - 8;
-            return html`
-              <g class="routing-node">
-                <circle cx=${node.x} cy=${node.y} r=${r}>
-                  <title>${formatNodeTitle(node)}</title>
-                </circle>
-                <text x=${textX} y=${node.y + 4} text-anchor=${textAnchor}>
-                  ${truncateLabel(node.label)}
-                </text>
-              </g>
-            `;
-          })}
-        </svg>
+            ${edges.map((edge) => {
+              const from = nodeByKey.get(edge.fromKey);
+              const to = nodeByKey.get(edge.toKey);
+              if (!from || !to) return nothing;
+              const ageMs = now - edge.lastTs;
+              const freshness = 1 - clamp(ageMs / this.windowMs, 0, 1);
+              const opacity = 0.15 + freshness * 0.85;
+              const width = 1 + Math.log10(edge.count + 1) * 2.5;
+              const x1 = from.x;
+              const y1 = from.y;
+              const x2 = to.x;
+              const y2 = to.y;
+              const midX = (x1 + x2) / 2;
+              const bend = clamp((x2 - x1) / 6, -60, 60);
+              const cx1 = midX - bend;
+              const cx2 = midX + bend;
+              const d = `M ${x1} ${y1} C ${cx1} ${y1}, ${cx2} ${y2}, ${x2} ${y2}`;
+              const color = colorForEventKind(edge.kind);
+              return html`
+                <path
+                  class="routing-edge"
+                  d=${d}
+                  stroke="currentColor"
+                  style=${`color: ${color};`}
+                  stroke-width=${width}
+                  stroke-opacity=${opacity}
+                  fill="none"
+                  marker-end="url(#routingArrow)"
+                >
+                  <title>${formatEdgeTitle(edge, from, to)}</title>
+                </path>
+              `;
+            })}
+
+            ${nodes.map((node) => {
+              const r = 10 + clamp(Math.log10(node.activity + 1) * 4, 0, 8);
+              const textAnchor = node.x < GRAPH_W / 2 ? "start" : "end";
+              const textX = node.x < GRAPH_W / 2 ? node.x + r + 8 : node.x - r - 8;
+              return html`
+                <g class="routing-node">
+                  <circle cx=${node.x} cy=${node.y} r=${r}>
+                    <title>${formatNodeTitle(node)}</title>
+                  </circle>
+                  <text x=${textX} y=${node.y + 4} text-anchor=${textAnchor}>
+                    ${truncateLabel(node.label)}
+                  </text>
+                </g>
+              `;
+            })}
+          </svg>
+        </div>
+
+        <div class="graph-summary">
+          <div class="graph-summary-title">Edge Preview</div>
+          ${previewRows}
+        </div>
       </div>
     `;
   }
@@ -710,28 +838,46 @@ export class RoutingGraphApp extends LitElement {
       return html`<div style="margin-top: 12px; color: var(--muted);">No events yet.</div>`;
     }
 
-    const formatRow = (evt: GatewayTraceEvent) => {
-      const from = evt.from?.label ?? evt.from?.id ?? "from";
-      const to = evt.to?.label ?? evt.to?.id ?? "to";
-      const label =
-        typeof evt.label === "string" && evt.label.trim() ? ` — ${evt.label.trim()}` : "";
-      return `${evt.kind} — ${from} → ${to}${label}`;
-    };
-
     return html`
       <div class="events">
         ${rows.map(
-          (evt) => html`
-            <div class="event-row">
-              <div class="event-top">
-                <div class="event-kind">${evt.kind}</div>
-                <div class="event-age">
-                  ${new Date(evt.ts).toLocaleTimeString()} · ${formatRelativeTimestamp(evt.ts)}
+          (evt) => {
+            const from = evt.from?.label ?? evt.from?.id ?? "from";
+            const to = evt.to?.label ?? evt.to?.id ?? "to";
+            const label = typeof evt.label === "string" ? evt.label.trim() : "";
+            const metaParts = [];
+            if (evt.runId) metaParts.push(`runId=${evt.runId}`);
+            if (evt.sessionKey) metaParts.push(`session=${evt.sessionKey}`);
+            const meta = metaParts.join(" · ");
+            const hasData = Boolean(evt.data && Object.keys(evt.data).length > 0);
+            return html`
+              <div class="event-row">
+                <div class="event-top">
+                  <div class="event-kind">${evt.kind}</div>
+                  <div class="event-age">
+                    ${new Date(evt.ts).toLocaleTimeString()} · ${formatRelativeTimestamp(evt.ts)}
+                  </div>
+                </div>
+                <div class="event-body">
+                  <div class="event-route">
+                    <span>${from}</span>
+                    <span class="event-arrow">→</span>
+                    <span>${to}</span>
+                    ${label ? html`<span class="event-arrow">—</span><span>${label}</span>` : nothing}
+                  </div>
+                  ${meta ? html`<div class="event-meta">${meta}</div>` : nothing}
+                  ${
+                    hasData
+                      ? html`<details class="event-details">
+                          <summary>data</summary>
+                          <pre>${safeJson(evt.data)}</pre>
+                        </details>`
+                      : nothing
+                  }
                 </div>
               </div>
-              <div class="event-body">${formatRow(evt)}</div>
-            </div>
-          `,
+            `;
+          },
         )}
       </div>
     `;

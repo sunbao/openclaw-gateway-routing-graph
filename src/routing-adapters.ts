@@ -151,6 +151,27 @@ function traceFromHealthEvent(payload: unknown): GatewayTraceEvent[] {
   const sessionCount = countKeys(payload.sessions);
   const agentCount = countKeys(payload.agents);
 
+  const durationMs =
+    typeof payload.durationMs === "number" && Number.isFinite(payload.durationMs)
+      ? payload.durationMs
+      : null;
+  const heartbeatSeconds =
+    typeof payload.heartbeatSeconds === "number" && Number.isFinite(payload.heartbeatSeconds)
+      ? payload.heartbeatSeconds
+      : null;
+  const defaultAgentId = normalizeText(payload.defaultAgentId);
+
+  const channelIdsRaw = Array.isArray(payload.channelOrder)
+    ? payload.channelOrder
+    : isRecord(payload.channels)
+      ? Object.keys(payload.channels)
+      : [];
+  const channelIds = channelIdsRaw
+    .filter((v) => typeof v === "string")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  const channelIdsPreview = channelIds.slice(0, 20);
+
   const labelParts = [];
   if (channelCount) labelParts.push(`${channelCount} channels`);
   if (sessionCount) labelParts.push(`${sessionCount} sessions`);
@@ -165,7 +186,16 @@ function traceFromHealthEvent(payload: unknown): GatewayTraceEvent[] {
       from: { kind: "gateway", id: "gateway", label: "gateway" },
       to: { kind: "rpc", id: "health", label: "health" },
       ...(label ? { label } : {}),
-      data: { channelCount, sessionCount, agentCount },
+      data: {
+        channelCount,
+        sessionCount,
+        agentCount,
+        durationMs: durationMs ?? undefined,
+        heartbeatSeconds: heartbeatSeconds ?? undefined,
+        defaultAgentId: defaultAgentId || undefined,
+        channelIds: channelIdsPreview,
+        channelIdsTruncated: channelIds.length > channelIdsPreview.length ? channelIds.length - channelIdsPreview.length : 0,
+      },
     },
   ];
 }
@@ -191,6 +221,9 @@ function traceFromChatEvent(payload: unknown): GatewayTraceEvent[] {
   const label = seq !== null ? `#${seq}` : undefined;
 
   const data: Record<string, unknown> = { state };
+  if (seq !== null) {
+    data.seq = seq;
+  }
   if (typeof payload.stopReason === "string" && payload.stopReason.trim()) {
     data.stopReason = payload.stopReason.trim();
   }
@@ -239,7 +272,7 @@ function traceFromNodeInvokeRequestEvent(payload: unknown): GatewayTraceEvent[] 
       to: { kind: "node", id: nodeId, label: nodeId },
       label: command,
       runId: id || undefined,
-      data: { command },
+      data: { nodeId, command },
     },
   ];
 }
@@ -289,6 +322,9 @@ function traceFromExecApprovalEvent(event: string, payload: unknown): GatewayTra
         id: id || undefined,
         decision: decision || undefined,
         hasRequest: Boolean(request),
+        agentId: agentId || undefined,
+        sessionKey: sessionKey || undefined,
+        command: command ? command.slice(0, 180) : undefined,
       },
     },
   ];
