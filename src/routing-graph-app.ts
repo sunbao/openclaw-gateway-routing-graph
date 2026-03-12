@@ -19,9 +19,10 @@ const STORAGE_GATEWAY_URL = "openclaw.routingGraph.gatewayUrl";
 const STORAGE_TOKEN = "openclaw.routingGraph.token";
 const STORAGE_PASSWORD = "openclaw.routingGraph.password";
 const STORAGE_THEME = "openclaw.routingGraph.theme";
+const STORAGE_AUTO_HEALTH = "openclaw.routingGraph.autoHealth";
 
-const EVENT_BUFFER_LIMIT = 500;
-const EVENT_LIST_LIMIT = 60;
+const EVENT_BUFFER_LIMIT = 2000;
+const EVENT_LIST_LIMIT = 200;
 const SYNC_THROTTLE_MS = 80;
 
 function readLocalStorage(key: string): string {
@@ -252,11 +253,13 @@ export class RoutingGraphApp extends LitElement {
       overflow: hidden;
       margin-top: 14px;
       background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
+      height: 460px;
+      max-height: 70vh;
     }
 
     svg {
       width: 100%;
-      height: auto;
+      height: 100%;
       display: block;
       color: var(--routing-other);
     }
@@ -331,6 +334,8 @@ export class RoutingGraphApp extends LitElement {
   private client: GatewayWsClient | null = null;
   private eventsBuffer: GatewayTraceEvent[] = [];
   private syncTimer: number | null = null;
+  private autoHealthTimer: number | null = null;
+  private autoHealthInFlight = false;
 
   hello: GatewayHelloOk | null = null;
   lastError: string | null = null;
@@ -363,6 +368,7 @@ export class RoutingGraphApp extends LitElement {
     const attr = document.documentElement.dataset.theme;
     return attr === "dark" ? "dark" : "light";
   })();
+  autoHealth = readLocalStorage(STORAGE_AUTO_HEALTH).trim() === "1";
   scope: "all" | "session" = "all";
   sessionKey = "";
   windowMs = 5_000;
@@ -386,6 +392,88 @@ export class RoutingGraphApp extends LitElement {
 
   private toggleTheme() {
     this.applyTheme(this.theme === "dark" ? "light" : "dark");
+  }
+
+  private setAutoHealth(enabled: boolean) {
+    this.autoHealth = enabled;
+    writeLocalStorage(STORAGE_AUTO_HEALTH, enabled ? "1" : "0");
+
+    if (enabled && this.connected) {
+      this.startAutoHealth();
+      return;
+    }
+    this.stopAutoHealth();
+  }
+
+  private startAutoHealth() {
+    if (this.autoHealthTimer != null) {
+      return;
+    }
+    const intervalMs = 1000;
+    this.autoHealthTimer = window.setInterval(() => void this.requestHealth(), intervalMs);
+  }
+
+  private stopAutoHealth() {
+    if (this.autoHealthTimer == null) {
+      return;
+    }
+    clearInterval(this.autoHealthTimer);
+    this.autoHealthTimer = null;
+  }
+
+  private pushSyntheticEvent(evt: GatewayTraceEvent) {
+    this.eventsBuffer = trimEvents([evt, ...this.eventsBuffer]);
+    this.scheduleSync(false);
+  }
+
+  private async requestHealth() {
+    const client = this.client;
+    if (!client || !client.connected) {
+      return;
+    }
+    if (this.autoHealthInFlight) {
+      return;
+    }
+    this.autoHealthInFlight = true;
+
+    const ts = Date.now();
+    const clientNode = { kind: "client" as const, id: "routing-graph", label: "routing-graph" };
+    const rpcNode = { kind: "rpc" as const, id: "health", label: "health" };
+
+    this.pushSyntheticEvent({
+      id: `viz_trace_health_req_${ts}`,
+      ts,
+      kind: "rpc.health.request",
+      from: clientNode,
+      to: rpcNode,
+    });
+
+    try {
+      await client.request("health");
+      const doneTs = Date.now();
+      this.pushSyntheticEvent({
+        id: `viz_trace_health_res_${doneTs}`,
+        ts: doneTs,
+        kind: "rpc.health.response",
+        from: rpcNode,
+        to: clientNode,
+        label: "ok",
+      });
+    } catch (err: unknown) {
+      const doneTs = Date.now();
+      const msg = err instanceof Error ? err.message : String(err);
+      this.pushSyntheticEvent({
+        id: `viz_trace_health_res_${doneTs}`,
+        ts: doneTs,
+        kind: "rpc.health.response",
+        from: rpcNode,
+        to: clientNode,
+        label: msg.slice(0, 80),
+        data: { error: msg },
+      });
+    } finally {
+      this.autoHealthInFlight = false;
+    }
   }
 
   private flushSync() {
@@ -422,6 +510,8 @@ export class RoutingGraphApp extends LitElement {
     writeSessionStorage(STORAGE_TOKEN, this.token);
     writeSessionStorage(STORAGE_PASSWORD, this.password);
 
+    this.resetEvents();
+    this.stopAutoHealth();
     this.client?.stop();
     this.client = new GatewayWsClient({
       url: this.gatewayUrl,
@@ -436,7 +526,6 @@ export class RoutingGraphApp extends LitElement {
         this.connected = true;
         this.hello = hello;
         this.lastError = null;
-        this.resetEvents();
 
         const ts = Date.now();
         const serverVersion = hello.server?.version || "";
@@ -470,10 +559,15 @@ export class RoutingGraphApp extends LitElement {
           ...this.eventsBuffer,
         ]);
         this.scheduleSync(true);
+
+        if (this.autoHealth) {
+          this.startAutoHealth();
+        }
       },
       onClose: ({ code, reason, error }) => {
         this.connected = false;
         this.hello = null;
+        this.stopAutoHealth();
         const suffix = error
           ? ` · ${error instanceof Error ? error.message : String(error)}`
           : "";
@@ -498,6 +592,7 @@ export class RoutingGraphApp extends LitElement {
     this.client = null;
     this.connected = false;
     this.hello = null;
+    this.stopAutoHealth();
   }
 
   private filteredEvents() {
@@ -724,6 +819,18 @@ export class RoutingGraphApp extends LitElement {
         <div class="row" style="margin-top: 12px; justify-content: space-between;">
           <div class="sub">${filtered.length} events · ${nodes.length} nodes · ${edges.length} edges</div>
           <div class="row">
+            <button class="btn" ?disabled=${!this.connected} @click=${() => void this.requestHealth()}>
+              Ping health
+            </button>
+            <label class="row" style="gap: 8px; font-weight: 700; color: var(--muted);">
+              <input
+                type="checkbox"
+                .checked=${this.autoHealth}
+                @change=${(e: Event) =>
+                  this.setAutoHealth((e.target as HTMLInputElement).checked)}
+              />
+              Auto health
+            </label>
             <button class="btn" @click=${() => (this.paused = !this.paused)}>
               ${this.paused ? "Resume" : "Pause"}
             </button>
