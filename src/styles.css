@@ -38,16 +38,17 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #0b1020;
-  --card: rgba(255, 255, 255, 0.1);
-  --card-2: rgba(255, 255, 255, 0.07);
-  --border: rgba(255, 255, 255, 0.18);
-  --border-strong: rgba(255, 255, 255, 0.28);
+  /* Slightly brighter than “near-black” so edges/nodes remain visible. */
+  --bg: #0f172a;
+  --card: rgba(255, 255, 255, 0.12);
+  --card-2: rgba(255, 255, 255, 0.08);
+  --border: rgba(255, 255, 255, 0.16);
+  --border-strong: rgba(255, 255, 255, 0.24);
   --text: rgba(255, 255, 255, 0.92);
   --text-strong: rgba(255, 255, 255, 0.98);
-  --muted: rgba(255, 255, 255, 0.72);
-  --field-bg: rgba(255, 255, 255, 0.06);
-  --text-outline: rgba(0, 0, 0, 0.35);
+  --muted: rgba(255, 255, 255, 0.74);
+  --field-bg: rgba(255, 255, 255, 0.08);
+  --text-outline: rgba(0, 0, 0, 0.55);
 
   --accent: #60a5fa;
   --accent-2: #a78bfa;
@@ -58,7 +59,7 @@
   --routing-message: var(--accent);
   --routing-tool: var(--warn);
   --routing-other: var(--muted);
-  --routing-node-fill: rgba(17, 24, 39, 0.68);
+  --routing-node-fill: rgba(255, 255, 255, 0.09);
   --routing-node-stroke: var(--border-strong);
 }
 

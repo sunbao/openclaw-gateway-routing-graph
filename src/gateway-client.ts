@@ -57,6 +57,9 @@ export class GatewayWsClient {
   private lastSeq: number | null = null;
   private backoffMs = 800;
   private pendingConnectError: unknown;
+  private connectSent = false;
+  private connectChallengeTimer: number | null = null;
+  private connectResponseTimer: number | null = null;
 
   constructor(private opts: GatewayWsClientOptions) {}
 
@@ -67,6 +70,14 @@ export class GatewayWsClient {
 
   stop() {
     this.closed = true;
+    if (this.connectChallengeTimer != null) {
+      clearTimeout(this.connectChallengeTimer);
+      this.connectChallengeTimer = null;
+    }
+    if (this.connectResponseTimer != null) {
+      clearTimeout(this.connectResponseTimer);
+      this.connectResponseTimer = null;
+    }
     this.ws?.close();
     this.ws = null;
     this.flushPending(new Error("gateway client stopped"));
@@ -81,13 +92,22 @@ export class GatewayWsClient {
       return;
     }
     this.ws = new WebSocket(this.opts.url);
-    this.ws.addEventListener("open", () => void this.sendConnect());
+    this.ws.addEventListener("open", () => this.queueConnect());
     this.ws.addEventListener("message", (ev) => this.handleMessage(String(ev.data ?? "")));
     this.ws.addEventListener("close", (ev) => {
       const reason = String(ev.reason ?? "");
       const connectError = this.pendingConnectError;
       this.pendingConnectError = undefined;
       this.ws = null;
+      this.connectSent = false;
+      if (this.connectChallengeTimer != null) {
+        clearTimeout(this.connectChallengeTimer);
+        this.connectChallengeTimer = null;
+      }
+      if (this.connectResponseTimer != null) {
+        clearTimeout(this.connectResponseTimer);
+        this.connectResponseTimer = null;
+      }
       this.flushPending(new Error(`gateway closed (${ev.code}): ${reason}`));
       this.opts.onClose?.({ code: ev.code, reason, error: connectError });
       this.scheduleReconnect();
@@ -113,7 +133,42 @@ export class GatewayWsClient {
     this.pending.clear();
   }
 
+  private queueConnect() {
+    this.connectSent = false;
+    if (this.connectChallengeTimer != null) {
+      clearTimeout(this.connectChallengeTimer);
+    }
+    if (this.connectResponseTimer != null) {
+      clearTimeout(this.connectResponseTimer);
+      this.connectResponseTimer = null;
+    }
+
+    // Some gateways send `connect.challenge` immediately on open and expect
+    // clients to wait. For compatibility with older forks, fall back to
+    // sending connect after a short delay if no challenge arrives.
+    this.connectChallengeTimer = window.setTimeout(() => this.sendConnect(), 250);
+  }
+
   private sendConnect() {
+    if (this.connectSent) {
+      return;
+    }
+    this.connectSent = true;
+    if (this.connectChallengeTimer != null) {
+      clearTimeout(this.connectChallengeTimer);
+      this.connectChallengeTimer = null;
+    }
+    if (this.connectResponseTimer != null) {
+      clearTimeout(this.connectResponseTimer);
+    }
+    this.connectResponseTimer = window.setTimeout(() => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+      this.pendingConnectError = new Error("gateway connect timeout");
+      this.ws.close(1008, "connect timeout");
+    }, 8000);
+
     // Keep scopes minimal. Some gateway forks validate scope names and will
     // reject unknown scopes during connect.
     const scopes = ["operator.admin"];
@@ -152,10 +207,18 @@ export class GatewayWsClient {
       .then((hello) => {
         this.backoffMs = 800;
         this.pendingConnectError = undefined;
+        if (this.connectResponseTimer != null) {
+          clearTimeout(this.connectResponseTimer);
+          this.connectResponseTimer = null;
+        }
         this.opts.onHello?.(hello);
       })
       .catch((err: unknown) => {
         this.pendingConnectError = err;
+        if (this.connectResponseTimer != null) {
+          clearTimeout(this.connectResponseTimer);
+          this.connectResponseTimer = null;
+        }
         this.ws?.close(CONNECT_FAILED_CLOSE_CODE, "connect failed");
       });
   }
@@ -171,6 +234,14 @@ export class GatewayWsClient {
     const frame = parsed as { type?: unknown };
     if (frame.type === "event") {
       const evt = parsed as GatewayEventFrame;
+      if (evt.event === "connect.challenge") {
+        // Prefer waiting for the server-side challenge before sending connect.
+        // We do not currently use the nonce (device identity signing), but
+        // sending connect after this event improves compatibility.
+        if (!this.connectSent) {
+          this.sendConnect();
+        }
+      }
       const seq = typeof evt.seq === "number" ? evt.seq : null;
       if (seq !== null) {
         if (this.lastSeq !== null && seq > this.lastSeq + 1) {

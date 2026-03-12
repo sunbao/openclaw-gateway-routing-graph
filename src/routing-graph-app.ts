@@ -20,10 +20,12 @@ const STORAGE_TOKEN = "openclaw.routingGraph.token";
 const STORAGE_PASSWORD = "openclaw.routingGraph.password";
 const STORAGE_THEME = "openclaw.routingGraph.theme";
 const STORAGE_AUTO_HEALTH = "openclaw.routingGraph.autoHealth";
+const STORAGE_LIST_LIMIT = "openclaw.routingGraph.listLimit";
 
 const EVENT_BUFFER_LIMIT = 2000;
-const EVENT_LIST_LIMIT = 200;
+const DEFAULT_EVENT_LIST_LIMIT = 200;
 const SYNC_THROTTLE_MS = 80;
+const AUTO_HEALTH_INTERVAL_MS = 5_000;
 
 function readLocalStorage(key: string): string {
   try {
@@ -76,6 +78,193 @@ function safeJson(value: unknown, maxChars = 2400): string {
   }
 }
 
+function normalizeErrorMessage(err: unknown): string {
+  if (!err) return "";
+  if (err instanceof Error) return err.message;
+  return String(err);
+}
+
+function describeDisconnect(info: {
+  code: number;
+  reason: string;
+  error?: unknown;
+}): { summary: string; raw: string } {
+  const reason = info.reason || "no reason";
+  const errorMsg = normalizeErrorMessage(info.error);
+  const raw = `disconnected (${info.code}): ${reason}${errorMsg ? ` · ${errorMsg}` : ""}`;
+
+  const reasonLower = reason.toLowerCase();
+
+  // Friendly summary first; technical details are shown separately.
+  if (info.code === 1006) {
+    return {
+      summary:
+        "连接失败：浏览器 WebSocket 握手被中断（常见原因：跨域 Origin 被拒绝 / 网关未暴露 WS）。建议使用同源 WS proxy（/__routing_graph/ws）。",
+      raw,
+    };
+  }
+
+  if (info.code === 1011) {
+    if (reasonLower.includes("unexpected server response")) {
+      return {
+        summary:
+          "连接失败：上游返回的不是 WebSocket（可能是 HTTP 页面/反向代理/URL 写错）。请检查 GATEWAY_URL 是否指向网关 WS 地址。",
+        raw,
+      };
+    }
+    if (reasonLower.includes("econnrefused")) {
+      return {
+        summary:
+          "连接失败：网关拒绝连接（ECONNREFUSED）。请确认网关进程运行、端口可达、未被防火墙拦截。",
+        raw,
+      };
+    }
+    if (reasonLower.includes("enotfound")) {
+      return {
+        summary: "连接失败：无法解析网关地址（ENOTFOUND）。请检查域名/DNS 或 GATEWAY_URL。",
+        raw,
+      };
+    }
+    if (reasonLower.includes("timed out") || reasonLower.includes("etimedout")) {
+      return {
+        summary: "连接失败：连接网关超时。请检查网关地址、网络连通性，或稍后重试。",
+        raw,
+      };
+    }
+    if (reasonLower.includes("upstream")) {
+      return {
+        summary:
+          "连接失败：无法连接到上游网关（upstream error）。请检查 GATEWAY_URL / 网关端口 / 网络。",
+        raw,
+      };
+    }
+    return {
+      summary: "连接失败：网关上游异常（1011）。请检查后端日志（WS proxy / 网关服务）。",
+      raw,
+    };
+  }
+
+  if (info.code === 1008) {
+    if (reasonLower.includes("pairing required")) {
+      return {
+        summary:
+          "连接失败：网关要求设备配对（pairing required）。请先在 Control UI 完成 device pairing 或使用有效的 operator token。",
+        raw,
+      };
+    }
+    if (reasonLower.includes("device identity required")) {
+      return {
+        summary:
+          "连接失败：网关要求设备身份（device identity required）。请使用 operator token（role=operator）或先完成设备配对后再连接。",
+        raw,
+      };
+    }
+  }
+
+  if (info.code === 4008 || reasonLower.includes("connect failed")) {
+    return {
+      summary:
+        "连接失败：网关 connect 握手失败。请检查 Token/Password 是否正确、权限 scopes 是否足够。",
+      raw,
+    };
+  }
+
+  return { summary: `连接已断开（${info.code}）`, raw };
+}
+
+function truncateText(text: string, max = 220): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function readDataString(data: Record<string, unknown>, key: string): string {
+  const v = data[key];
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function readDataNumber(data: Record<string, unknown>, key: string): number | null {
+  const v = data[key];
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function formatEventSummary(evt: GatewayTraceEvent): string | null {
+  const data = evt.data ?? {};
+  const kind = String(evt.kind || "");
+
+  if (kind === "rpc.connect") {
+    const serverVersion = readDataString(data, "serverVersion");
+    const role = readDataString(data, "role");
+    const scopeCount = readDataNumber(data, "scopeCount");
+    const eventCount = readDataNumber(data, "eventCount");
+    const methodCount = readDataNumber(data, "methodCount");
+
+    const parts = [];
+    if (serverVersion) parts.push(`server=${serverVersion}`);
+    if (role) parts.push(`role=${role}`);
+    if (scopeCount !== null) parts.push(`scopes=${scopeCount}`);
+    if (eventCount !== null) parts.push(`events=${eventCount}`);
+    if (methodCount !== null) parts.push(`methods=${methodCount}`);
+    return parts.length ? truncateText(parts.join(" · ")) : null;
+  }
+
+  if (kind === "rpc.health") {
+    const channelCount = readDataNumber(data, "channelCount");
+    const sessionCount = readDataNumber(data, "sessionCount");
+    const agentCount = readDataNumber(data, "agentCount");
+    const durationMs = readDataNumber(data, "durationMs");
+    const heartbeatSeconds = readDataNumber(data, "heartbeatSeconds");
+    const defaultAgentId = readDataString(data, "defaultAgentId");
+
+    const parts = [];
+    if (channelCount !== null) parts.push(`channels=${channelCount}`);
+    if (sessionCount !== null) parts.push(`sessions=${sessionCount}`);
+    if (agentCount !== null) parts.push(`agents=${agentCount}`);
+    if (durationMs !== null) parts.push(`durationMs=${durationMs}`);
+    if (heartbeatSeconds !== null) parts.push(`heartbeatSeconds=${heartbeatSeconds}`);
+    if (defaultAgentId) parts.push(`defaultAgent=${defaultAgentId}`);
+    return parts.length ? truncateText(parts.join(" · ")) : null;
+  }
+
+  if (kind.startsWith("tool.")) {
+    const name = readDataString(data, "name");
+    const toolCallId = readDataString(data, "toolCallId");
+    const ok = typeof data.ok === "boolean" ? data.ok : null;
+
+    const parts = [];
+    if (name) parts.push(`tool=${name}`);
+    if (toolCallId) parts.push(`callId=${toolCallId}`);
+    if (ok !== null) parts.push(`ok=${ok ? "true" : "false"}`);
+    return parts.length ? truncateText(parts.join(" · ")) : null;
+  }
+
+  if (kind.startsWith("message.chat.")) {
+    const state = readDataString(data, "state");
+    const seq = readDataNumber(data, "seq");
+    const stopReason = readDataString(data, "stopReason");
+    const error = readDataString(data, "error");
+
+    const parts = [];
+    if (state) parts.push(`state=${state}`);
+    if (seq !== null) parts.push(`seq=${seq}`);
+    if (stopReason) parts.push(`stopReason=${stopReason}`);
+    if (error) parts.push(`error=${error}`);
+    return parts.length ? truncateText(parts.join(" · ")) : null;
+  }
+
+  if (kind.startsWith("rpc.exec.approval.")) {
+    const decision = readDataString(data, "decision");
+    const command = readDataString(data, "command");
+    const id = readDataString(data, "id");
+
+    const parts = [];
+    if (command) parts.push(`command=${command}`);
+    if (decision) parts.push(`decision=${decision}`);
+    if (id) parts.push(`id=${id}`);
+    return parts.length ? truncateText(parts.join(" · ")) : null;
+  }
+
+  return null;
+}
+
 export class RoutingGraphApp extends LitElement {
   static properties = {
     gatewayUrl: { state: true },
@@ -91,6 +280,8 @@ export class RoutingGraphApp extends LitElement {
     events: { state: true },
     hello: { state: true },
     lastError: { state: true },
+    lastErrorRaw: { state: true },
+    eventListLimit: { state: true },
   };
 
   static styles = css`
@@ -425,6 +616,7 @@ export class RoutingGraphApp extends LitElement {
 
   hello: GatewayHelloOk | null = null;
   lastError: string | null = null;
+  lastErrorRaw: string | null = null;
   gatewayUrl = (() => {
     const saved = readLocalStorage(STORAGE_GATEWAY_URL).trim();
     if (saved) return saved;
@@ -462,9 +654,15 @@ export class RoutingGraphApp extends LitElement {
   })();
   scope: "all" | "session" = "all";
   sessionKey = "";
-  windowMs = 5_000;
+  windowMs = 60_000;
   filters: RoutingFilters = { rpc: true, messages: true, tools: true };
   events: GatewayTraceEvent[] = [];
+  eventListLimit = (() => {
+    const raw = readLocalStorage(STORAGE_LIST_LIMIT).trim();
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return DEFAULT_EVENT_LIST_LIMIT;
+    return Math.max(20, Math.min(2000, parsed));
+  })();
 
   connectedCallback() {
     super.connectedCallback();
@@ -500,7 +698,7 @@ export class RoutingGraphApp extends LitElement {
     if (this.autoHealthTimer != null) {
       return;
     }
-    const intervalMs = 1000;
+    const intervalMs = AUTO_HEALTH_INTERVAL_MS;
     this.autoHealthTimer = window.setInterval(() => void this.requestHealth(), intervalMs);
   }
 
@@ -595,8 +793,96 @@ export class RoutingGraphApp extends LitElement {
     this.events = [];
   }
 
+  private loadDemo() {
+    const now = Date.now();
+    const sessionKey = "demo";
+    const runId = "demo-run";
+
+    const client = { kind: "client" as const, id: "routing-graph", label: "routing-graph" };
+    const gateway = { kind: "gateway" as const, id: "gateway", label: "gateway" };
+    const channel = { kind: "channel" as const, id: "feishu", label: "feishu" };
+    const session = { kind: "session" as const, id: sessionKey, label: sessionKey };
+    const agent = { kind: "agent" as const, id: "agent-1", label: "agent-1" };
+    const tool = { kind: "tool" as const, id: "browser.search", label: "browser.search" };
+
+    const demoEvents: GatewayTraceEvent[] = [
+      {
+        id: `demo_${now}_1`,
+        ts: now - 4_200,
+        kind: "rpc.connect",
+        from: client,
+        to: gateway,
+        label: "demo",
+      },
+      {
+        id: `demo_${now}_2`,
+        ts: now - 3_600,
+        kind: "message.in",
+        from: channel,
+        to: session,
+        label: "hello",
+        sessionKey,
+        runId,
+        data: { channel: "feishu" },
+      },
+      {
+        id: `demo_${now}_3`,
+        ts: now - 2_900,
+        kind: "tool.start",
+        from: session,
+        to: tool,
+        label: "call_1",
+        sessionKey,
+        runId,
+        data: { toolCallId: "call_1", name: "browser.search" },
+      },
+      {
+        id: `demo_${now}_4`,
+        ts: now - 2_000,
+        kind: "tool.result",
+        from: tool,
+        to: session,
+        label: "call_1",
+        sessionKey,
+        runId,
+        data: { toolCallId: "call_1", name: "browser.search", ok: true },
+      },
+      {
+        id: `demo_${now}_5`,
+        ts: now - 1_300,
+        kind: "message.chat.final",
+        from: agent,
+        to: session,
+        label: "#1",
+        sessionKey,
+        runId,
+        data: { state: "final", seq: 1 },
+      },
+      {
+        id: `demo_${now}_6`,
+        ts: now - 700,
+        kind: "message.out",
+        from: session,
+        to: channel,
+        label: "reply",
+        sessionKey,
+        runId,
+        data: { channel: "feishu" },
+      },
+    ];
+
+    this.lastError = null;
+    this.lastErrorRaw = null;
+    this.paused = false;
+    this.stopAutoHealth();
+
+    this.eventsBuffer = trimEvents([...demoEvents].sort((a, b) => b.ts - a.ts));
+    this.scheduleSync(true);
+  }
+
   private connect() {
     this.lastError = null;
+    this.lastErrorRaw = null;
     writeLocalStorage(STORAGE_GATEWAY_URL, this.gatewayUrl);
     writeSessionStorage(STORAGE_TOKEN, this.token);
     writeSessionStorage(STORAGE_PASSWORD, this.password);
@@ -617,6 +903,7 @@ export class RoutingGraphApp extends LitElement {
         this.connected = true;
         this.hello = hello;
         this.lastError = null;
+        this.lastErrorRaw = null;
 
         const ts = Date.now();
         const serverVersion = hello.server?.version || "";
@@ -662,13 +949,13 @@ export class RoutingGraphApp extends LitElement {
         this.connected = false;
         this.hello = null;
         this.stopAutoHealth();
-        const suffix = error
-          ? ` · ${error instanceof Error ? error.message : String(error)}`
-          : "";
-        this.lastError = `disconnected (${code}): ${reason || "no reason"}${suffix}`;
+        const described = describeDisconnect({ code, reason, error });
+        this.lastError = described.summary;
+        this.lastErrorRaw = described.raw;
       },
       onGap: ({ expected, received }) => {
         this.lastError = `event gap detected (expected seq ${expected}, got ${received})`;
+        this.lastErrorRaw = null;
       },
       onEvent: (evt) => {
         if (this.paused) return;
@@ -767,7 +1054,7 @@ export class RoutingGraphApp extends LitElement {
                 markerHeight="5"
                 orient="auto-start-reverse"
               >
-                <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path>
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"></path>
               </marker>
             </defs>
 
@@ -777,8 +1064,8 @@ export class RoutingGraphApp extends LitElement {
               if (!from || !to) return nothing;
               const ageMs = now - edge.lastTs;
               const freshness = 1 - clamp(ageMs / this.windowMs, 0, 1);
-              const opacity = 0.15 + freshness * 0.85;
-              const width = 1 + Math.log10(edge.count + 1) * 2.5;
+              const opacity = 0.25 + freshness * 0.75;
+              const width = 1.5 + Math.log10(edge.count + 1) * 2.8;
               const x1 = from.x;
               const y1 = from.y;
               const x2 = to.x;
@@ -793,8 +1080,7 @@ export class RoutingGraphApp extends LitElement {
                 <path
                   class="routing-edge"
                   d=${d}
-                  stroke="currentColor"
-                  style=${`color: ${color};`}
+                  stroke=${color}
                   stroke-width=${width}
                   stroke-opacity=${opacity}
                   fill="none"
@@ -833,7 +1119,7 @@ export class RoutingGraphApp extends LitElement {
 
   private renderEventsList() {
     const { filtered } = this.filteredEvents();
-    const rows = filtered.slice(0, EVENT_LIST_LIMIT);
+    const rows = filtered.slice(0, this.eventListLimit);
     if (rows.length === 0) {
       return html`<div style="margin-top: 12px; color: var(--muted);">No events yet.</div>`;
     }
@@ -849,6 +1135,7 @@ export class RoutingGraphApp extends LitElement {
             if (evt.runId) metaParts.push(`runId=${evt.runId}`);
             if (evt.sessionKey) metaParts.push(`session=${evt.sessionKey}`);
             const meta = metaParts.join(" · ");
+            const summary = formatEventSummary(evt);
             const hasData = Boolean(evt.data && Object.keys(evt.data).length > 0);
             return html`
               <div class="event-row">
@@ -866,6 +1153,7 @@ export class RoutingGraphApp extends LitElement {
                     ${label ? html`<span class="event-arrow">—</span><span>${label}</span>` : nothing}
                   </div>
                   ${meta ? html`<div class="event-meta">${meta}</div>` : nothing}
+                  ${summary ? html`<div class="event-meta">${summary}</div>` : nothing}
                   ${
                     hasData
                       ? html`<details class="event-details">
@@ -954,17 +1242,22 @@ export class RoutingGraphApp extends LitElement {
           </div>
         </div>
 
-        ${
-          this.lastError
-            ? html`<div class="sub" style="margin-top: 10px; color: var(--danger);">
-                ${this.lastError}
-              </div>`
-            : nothing
-        }
+        ${this.lastError
+          ? html`<div class="sub" style="margin-top: 10px; color: var(--danger);">
+              <div>${this.lastError}</div>
+              ${this.lastErrorRaw
+                ? html`<details class="event-details" style="margin-top: 8px;">
+                    <summary>technical details</summary>
+                    <pre>${this.lastErrorRaw}</pre>
+                  </details>`
+                : nothing}
+            </div>`
+          : nothing}
 
         <div class="row" style="margin-top: 12px; justify-content: space-between;">
           <div class="sub">${filtered.length} events · ${nodes.length} nodes · ${edges.length} edges</div>
           <div class="row">
+            <button class="btn" @click=${() => this.loadDemo()}>Demo</button>
             <button class="btn" ?disabled=${!this.connected} @click=${() => void this.requestHealth()}>
               Ping health
             </button>
@@ -975,7 +1268,7 @@ export class RoutingGraphApp extends LitElement {
                 @change=${(e: Event) =>
                   this.setAutoHealth((e.target as HTMLInputElement).checked)}
               />
-              Auto health
+              Auto health (5s)
             </label>
             <button class="btn" @click=${() => (this.paused = !this.paused)}>
               ${this.paused ? "Resume" : "Pause"}
@@ -1016,6 +1309,23 @@ export class RoutingGraphApp extends LitElement {
               ${windowOptions.map(
                 (opt) => html`<option value=${String(opt.ms)}>${opt.label}</option>`,
               )}
+            </select>
+          </label>
+
+          <label>
+            List limit
+            <select
+              .value=${String(this.eventListLimit)}
+              @change=${(e: Event) => {
+                const v = Number((e.target as HTMLSelectElement).value);
+                this.eventListLimit = v;
+                writeLocalStorage(STORAGE_LIST_LIMIT, String(v));
+              }}
+            >
+              <option value="50">50</option>
+              <option value="200">200</option>
+              <option value="500">500</option>
+              <option value="1000">1000</option>
             </select>
           </label>
         </div>

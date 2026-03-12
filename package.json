@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "lit": "^3.3.2",
+    "openclaw": "file:../openclaw",
     "ws": "^8.18.3"
   },
   "devDependencies": {
