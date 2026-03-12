@@ -5,6 +5,38 @@ export const GRAPH_H = 420;
 export const GRAPH_PAD = 40;
 export const EDGE_LIMIT = 120;
 
+function safeString(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (value == null) {
+    return "";
+  }
+  return String(value);
+}
+
+function coerceTraceNode(value: unknown): GatewayTraceNode | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const raw = value as Record<string, unknown>;
+  const kind = typeof raw.kind === "string" ? raw.kind.trim() : "";
+  const id = safeString(raw.id).trim();
+  if (!kind || !id) {
+    return null;
+  }
+
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  if (label) {
+    return { kind: kind as GatewayTraceNode["kind"], id, label };
+  }
+  return { kind: kind as GatewayTraceNode["kind"], id };
+}
+
 export type GraphNode = {
   key: string;
   kind: string;
@@ -28,11 +60,12 @@ export type GraphEdge = {
 
 function normalizeNodeLabel(node: GatewayTraceNode): string {
   const label = typeof node.label === "string" ? node.label.trim() : "";
-  return label || node.id;
+  const id = safeString(node.id).trim();
+  return label || id || "(unknown)";
 }
 
 function nodeKey(node: GatewayTraceNode): string {
-  return `${String(node.kind)}:${node.id}`;
+  return `${safeString(node.kind)}:${safeString(node.id)}`;
 }
 
 function isRpcKind(kind: string): boolean {
@@ -119,14 +152,58 @@ function layoutNodes(nodes: Array<Omit<GraphNode, "x" | "y">>) {
   return positions;
 }
 
+function inferTraceEndpoints(evt: {
+  kind: string;
+  runId?: string;
+  sessionKey?: string;
+}): { from: GatewayTraceNode; to: GatewayTraceNode } {
+  const kind = evt.kind || "event";
+  const gateway: GatewayTraceNode = { kind: "gateway", id: "gateway", label: "gateway" };
+
+  if (isRpcKind(kind)) {
+    const rpcId = kind.slice("rpc.".length) || "rpc";
+    return {
+      from: gateway,
+      to: { kind: "rpc", id: rpcId, label: rpcId },
+    };
+  }
+
+  if (isMessageKind(kind)) {
+    const agentId = (evt.runId || "").trim();
+    const sessionKey = (evt.sessionKey || "").trim();
+    return {
+      from: agentId ? { kind: "agent", id: agentId, label: agentId } : gateway,
+      to: sessionKey ? { kind: "session", id: sessionKey, label: sessionKey } : { kind: "session", id: "session", label: "session" },
+    };
+  }
+
+  if (isToolKind(kind)) {
+    const agentId = (evt.runId || "").trim();
+    const sessionKey = (evt.sessionKey || "").trim();
+    return {
+      from: sessionKey ? { kind: "session", id: sessionKey, label: sessionKey } : agentId ? { kind: "agent", id: agentId, label: agentId } : gateway,
+      to: { kind: "tool", id: "tool", label: "tool" },
+    };
+  }
+
+  return {
+    from: gateway,
+    to: { kind: "other", id: kind, label: kind },
+  };
+}
+
 export function buildGraph(events: GatewayTraceEvent[], now: number) {
   const nodes = new Map<string, Omit<GraphNode, "x" | "y">>();
   const edges = new Map<string, GraphEdge>();
 
   for (const evt of events) {
-    const from = evt.from;
-    const to = evt.to;
-    if (!from || !to) continue;
+    const kind = safeString(evt.kind).trim() || "event";
+    const from =
+      coerceTraceNode((evt as unknown as { from?: unknown }).from) ??
+      inferTraceEndpoints({ kind, runId: safeString(evt.runId).trim(), sessionKey: safeString(evt.sessionKey).trim() }).from;
+    const to =
+      coerceTraceNode((evt as unknown as { to?: unknown }).to) ??
+      inferTraceEndpoints({ kind, runId: safeString(evt.runId).trim(), sessionKey: safeString(evt.sessionKey).trim() }).to;
 
     const ts = typeof evt.ts === "number" && Number.isFinite(evt.ts) ? evt.ts : now;
     const fromKey = nodeKey(from);
@@ -153,7 +230,7 @@ export function buildGraph(events: GatewayTraceEvent[], now: number) {
     upsertNode(from, fromKey);
     upsertNode(to, toKey);
 
-    const edgeKind = evt.kind;
+    const edgeKind = kind;
     const edgeLabel =
       typeof evt.label === "string" && evt.label.trim() ? evt.label.trim() : null;
     const edgeKey = `${fromKey}->${toKey}:${edgeKind}`;
@@ -242,4 +319,3 @@ export function formatNodeTitle(node: GraphNode) {
   const age = formatRelativeTimestamp(node.lastTs);
   return `${node.kind}:${node.id} — ${node.activity} events — ${age}`;
 }
-

@@ -18,6 +18,7 @@ import {
 const STORAGE_GATEWAY_URL = "openclaw.routingGraph.gatewayUrl";
 const STORAGE_TOKEN = "openclaw.routingGraph.token";
 const STORAGE_PASSWORD = "openclaw.routingGraph.password";
+const STORAGE_THEME = "openclaw.routingGraph.theme";
 
 const EVENT_BUFFER_LIMIT = 500;
 const EVENT_LIST_LIMIT = 60;
@@ -69,6 +70,7 @@ export class RoutingGraphApp extends LitElement {
     password: { state: true },
     connected: { state: true },
     paused: { state: true },
+    theme: { state: true },
     scope: { state: true },
     sessionKey: { state: true },
     windowMs: { state: true },
@@ -141,7 +143,7 @@ export class RoutingGraphApp extends LitElement {
     select {
       border: 1px solid var(--border);
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--field-bg);
       color: var(--text);
       padding: 10px 10px;
       outline: none;
@@ -162,7 +164,7 @@ export class RoutingGraphApp extends LitElement {
     .btn {
       border: 1px solid var(--border);
       border-radius: 10px;
-      background: rgba(255, 255, 255, 0.06);
+      background: var(--field-bg);
       color: var(--text-strong);
       padding: 10px 12px;
       font-weight: 800;
@@ -249,7 +251,7 @@ export class RoutingGraphApp extends LitElement {
       border-radius: var(--radius);
       overflow: hidden;
       margin-top: 14px;
-      background: linear-gradient(180deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28));
+      background: linear-gradient(180deg, var(--card) 0%, var(--card-2) 100%);
     }
 
     svg {
@@ -275,7 +277,7 @@ export class RoutingGraphApp extends LitElement {
       font-weight: 800;
       fill: var(--text-strong);
       paint-order: stroke;
-      stroke: rgba(0, 0, 0, 0.35);
+      stroke: var(--text-outline);
       stroke-width: 3px;
       stroke-linejoin: round;
     }
@@ -290,7 +292,7 @@ export class RoutingGraphApp extends LitElement {
       border: 1px solid var(--border);
       border-radius: 10px;
       padding: 10px 10px;
-      background: rgba(0, 0, 0, 0.18);
+      background: var(--card-2);
       overflow-wrap: anywhere;
     }
 
@@ -354,11 +356,37 @@ export class RoutingGraphApp extends LitElement {
   password = readSessionStorage(STORAGE_PASSWORD) || "";
   connected = false;
   paused = false;
+  theme: "light" | "dark" = (() => {
+    const saved = readLocalStorage(STORAGE_THEME).trim();
+    if (saved === "dark") return "dark";
+    if (saved === "light") return "light";
+    const attr = document.documentElement.dataset.theme;
+    return attr === "dark" ? "dark" : "light";
+  })();
   scope: "all" | "session" = "all";
   sessionKey = "";
   windowMs = 60_000;
   filters: RoutingFilters = { rpc: true, messages: true, tools: true };
   events: GatewayTraceEvent[] = [];
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.applyTheme(this.theme);
+  }
+
+  private applyTheme(next: "light" | "dark") {
+    this.theme = next;
+    writeLocalStorage(STORAGE_THEME, next);
+    try {
+      document.documentElement.dataset.theme = next;
+    } catch {
+      // ignore
+    }
+  }
+
+  private toggleTheme() {
+    this.applyTheme(this.theme === "dark" ? "light" : "dark");
+  }
 
   private flushSync() {
     if (this.syncTimer != null) {
@@ -631,6 +659,9 @@ export class RoutingGraphApp extends LitElement {
           <div class="sub">Live “routing map” for gateway trace + tool calls.</div>
         </div>
         <div class="row">
+          <button class="btn" @click=${() => this.toggleTheme()}>
+            Theme: ${this.theme === "dark" ? "Dark" : "Light"}
+          </button>
           ${this.renderConnectionPill()}
           ${this.paused ? html`<span class="pill warn">Paused</span>` : nothing}
         </div>

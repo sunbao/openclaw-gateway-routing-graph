@@ -4,10 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenClaw Routing Graph</title>
+    <script>
+      (() => {
+        try {
+          const key = "openclaw.routingGraph.theme";
+          const saved = window.localStorage.getItem(key);
+          const theme = saved === "dark" ? "dark" : saved === "light" ? "light" : "light";
+          document.documentElement.dataset.theme = theme;
+        } catch {
+          // ignore
+        }
+      })();
+    </script>
   </head>
   <body>
     <routing-graph-app></routing-graph-app>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
-
