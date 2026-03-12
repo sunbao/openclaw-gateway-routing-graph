@@ -365,7 +365,7 @@ export class RoutingGraphApp extends LitElement {
   })();
   scope: "all" | "session" = "all";
   sessionKey = "";
-  windowMs = 60_000;
+  windowMs = 5_000;
   filters: RoutingFilters = { rpc: true, messages: true, tools: true };
   events: GatewayTraceEvent[] = [];
 
@@ -647,6 +647,7 @@ export class RoutingGraphApp extends LitElement {
     const { nodes, edges } = buildGraph(filtered, Date.now());
 
     const windowOptions = [
+      { label: "5s", ms: 5_000 },
       { label: "15s", ms: 15_000 },
       { label: "60s", ms: 60_000 },
       { label: "5m", ms: 5 * 60_000 },
