@@ -108,7 +108,7 @@ function formatUpstreamFailure(err, extra) {
     const status = m[1];
     return shorten(
       `gateway rejected WebSocket upgrade (HTTP ${status}) — check GATEWAY_URL (${sanitizeWsUrl(
-        extra?.gatewayUrl || gatewayUrl,
+        (extra && extra.gatewayUrl) || gatewayUrl,
       )})`,
       120,
     );
@@ -302,7 +302,12 @@ wss.on("connection", (clientWs) => {
 
   upstreamWs.on("close", (code, reasonRaw) => {
     clearTimeout(connectTimer);
-    const reason = typeof reasonRaw === "string" ? reasonRaw : reasonRaw?.toString?.() || "";
+    const reason =
+      typeof reasonRaw === "string"
+        ? reasonRaw
+        : reasonRaw && typeof reasonRaw.toString === "function"
+          ? reasonRaw.toString()
+          : "";
     logWarn("ws proxy upstream closed", { connId, code, reason: shorten(reason, 200) });
     if (clientWs.readyState === WebSocket.OPEN) {
       try {
@@ -343,7 +348,12 @@ wss.on("connection", (clientWs) => {
 
   clientWs.on("close", (code, reasonRaw) => {
     clearTimeout(connectTimer);
-    const reason = typeof reasonRaw === "string" ? reasonRaw : reasonRaw?.toString?.() || "";
+    const reason =
+      typeof reasonRaw === "string"
+        ? reasonRaw
+        : reasonRaw && typeof reasonRaw.toString === "function"
+          ? reasonRaw.toString()
+          : "";
     logInfo("ws proxy client closed", { connId, code, reason: shorten(reason, 200) });
     if (upstreamWs.readyState === WebSocket.OPEN) {
       try {
