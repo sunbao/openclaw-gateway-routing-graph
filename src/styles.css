@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
-  --bg: #0b0d12;
-  --card: rgba(255, 255, 255, 0.06);
-  --card-2: rgba(255, 255, 255, 0.04);
-  --border: rgba(255, 255, 255, 0.12);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --text: rgba(255, 255, 255, 0.88);
-  --text-strong: rgba(255, 255, 255, 0.95);
-  --muted: rgba(255, 255, 255, 0.62);
+  --bg: #121a2b;
+  --card: rgba(255, 255, 255, 0.1);
+  --card-2: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.18);
+  --border-strong: rgba(255, 255, 255, 0.28);
+  --text: rgba(255, 255, 255, 0.92);
+  --text-strong: rgba(255, 255, 255, 0.98);
+  --muted: rgba(255, 255, 255, 0.72);
 
   --accent: #60a5fa;
   --accent-2: #a78bfa;
@@ -18,7 +18,7 @@
   --routing-message: var(--accent);
   --routing-tool: var(--warn);
   --routing-other: var(--muted);
-  --routing-node-fill: rgba(10, 12, 18, 0.75);
+  --routing-node-fill: rgba(17, 24, 39, 0.65);
   --routing-node-stroke: var(--border-strong);
 
   --radius: 12px;
@@ -45,4 +45,3 @@ body {
 * {
   box-sizing: border-box;
 }
-

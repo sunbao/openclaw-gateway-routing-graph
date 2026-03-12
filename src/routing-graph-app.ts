@@ -141,7 +141,7 @@ export class RoutingGraphApp extends LitElement {
     select {
       border: 1px solid var(--border);
       border-radius: 10px;
-      background: rgba(0, 0, 0, 0.25);
+      background: rgba(255, 255, 255, 0.06);
       color: var(--text);
       padding: 10px 10px;
       outline: none;
@@ -162,7 +162,7 @@ export class RoutingGraphApp extends LitElement {
     .btn {
       border: 1px solid var(--border);
       border-radius: 10px;
-      background: rgba(0, 0, 0, 0.22);
+      background: rgba(255, 255, 255, 0.06);
       color: var(--text-strong);
       padding: 10px 12px;
       font-weight: 800;
@@ -409,6 +409,39 @@ export class RoutingGraphApp extends LitElement {
         this.hello = hello;
         this.lastError = null;
         this.resetEvents();
+
+        const ts = Date.now();
+        const serverVersion = hello.server?.version || "";
+        const role = hello.auth?.role || "";
+        const scopeCount = hello.auth?.scopes?.length ?? 0;
+        const eventCount = hello.features?.events?.length ?? 0;
+        const methodCount = hello.features?.methods?.length ?? 0;
+
+        const labelParts = [];
+        if (serverVersion) labelParts.push(serverVersion);
+        if (role) labelParts.push(role);
+        if (scopeCount) labelParts.push(`${scopeCount} scopes`);
+        if (eventCount) labelParts.push(`${eventCount} events`);
+
+        this.eventsBuffer = trimEvents([
+          {
+            id: `viz_trace_hello_${ts}`,
+            ts,
+            kind: "rpc.connect",
+            from: { kind: "client", id: "routing-graph", label: "routing-graph" },
+            to: { kind: "gateway", id: "gateway", label: "gateway" },
+            label: labelParts.join(" · ") || "hello-ok",
+            data: {
+              serverVersion: serverVersion || undefined,
+              role: role || undefined,
+              scopeCount,
+              eventCount,
+              methodCount,
+            },
+          },
+          ...this.eventsBuffer,
+        ]);
+        this.scheduleSync(true);
       },
       onClose: ({ code, reason, error }) => {
         this.connected = false;
