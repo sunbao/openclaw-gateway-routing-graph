@@ -112,6 +112,13 @@ function describeDisconnect(info: {
         raw,
       };
     }
+    if (reasonLower.includes("rejected websocket upgrade") || reasonLower.includes("http ")) {
+      return {
+        summary:
+          "连接失败：网关拒绝 WebSocket 握手（HTTP 非 101）。常见原因：URL 写错、反向代理未透传 Upgrade、鉴权/Origin 校验失败。",
+        raw,
+      };
+    }
     if (reasonLower.includes("econnrefused")) {
       return {
         summary:
