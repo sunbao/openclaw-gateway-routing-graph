@@ -42,6 +42,49 @@ function countKeys(value: unknown): number {
   return 0;
 }
 
+function readFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function truncateText(value: string, max = 180) {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function extractMessagePreview(message: unknown): string {
+  if (typeof message === "string") {
+    return truncateText(message, 180);
+  }
+  if (!isRecord(message)) {
+    return "";
+  }
+
+  const direct = [message.text, message.content, message.preview]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .find(Boolean);
+  if (direct) {
+    return truncateText(direct, 180);
+  }
+
+  const parts = Array.isArray(message.parts) ? message.parts : [];
+  const text = parts
+    .map((part) => {
+      if (typeof part === "string") {
+        return part;
+      }
+      if (isRecord(part) && typeof part.text === "string") {
+        return part.text;
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join(" ");
+  return text ? truncateText(text, 180) : "";
+}
+
 function extractTsFromUnknown(payload: unknown): number {
   if (!isRecord(payload)) {
     return Date.now();
@@ -147,38 +190,47 @@ function traceFromHealthEvent(payload: unknown): GatewayTraceEvent[] {
   }
 
   const ts = extractTs(payload);
-  const channelCount = countKeys(payload.channels);
-  const sessionCount = countKeys(payload.sessions);
-  const agentCount = countKeys(payload.agents);
-
-  const durationMs =
-    typeof payload.durationMs === "number" && Number.isFinite(payload.durationMs)
-      ? payload.durationMs
-      : null;
-  const heartbeatSeconds =
-    typeof payload.heartbeatSeconds === "number" && Number.isFinite(payload.heartbeatSeconds)
-      ? payload.heartbeatSeconds
-      : null;
+  const channels = isRecord(payload.channels) ? payload.channels : {};
+  const sessions = isRecord(payload.sessions) ? payload.sessions : {};
+  const agentsRaw = Array.isArray(payload.agents) ? payload.agents : [];
+  const channelCount = Array.isArray(payload.channelOrder)
+    ? payload.channelOrder.filter((value) => typeof value === "string" && value.trim()).length
+    : countKeys(channels);
+  const sessionCount =
+    readFiniteNumber(sessions.count) ??
+    (Array.isArray(sessions.recent) ? sessions.recent.length : countKeys(sessions));
+  const agentCount = agentsRaw.length;
+  const durationMs = readFiniteNumber(payload.durationMs);
+  const heartbeatSeconds = readFiniteNumber(payload.heartbeatSeconds);
   const defaultAgentId = normalizeText(payload.defaultAgentId);
+  const channelLabels = isRecord(payload.channelLabels) ? payload.channelLabels : {};
 
-  const channelIdsRaw = Array.isArray(payload.channelOrder)
-    ? payload.channelOrder
-    : isRecord(payload.channels)
-      ? Object.keys(payload.channels)
-      : [];
+  const channelIdsRaw = Array.isArray(payload.channelOrder) ? payload.channelOrder : Object.keys(channels);
   const channelIds = channelIdsRaw
     .filter((v) => typeof v === "string")
     .map((v) => v.trim())
     .filter(Boolean);
   const channelIdsPreview = channelIds.slice(0, 20);
+  const channelNames = channelIdsPreview.map((channelId) => {
+    const label = normalizeText(channelLabels[channelId]);
+    return label ? `${channelId}(${label})` : channelId;
+  });
+  const sessionsRecent = Array.isArray(sessions.recent) ? sessions.recent : [];
+  const sessionKeys = sessionsRecent
+    .map((entry) => (isRecord(entry) ? normalizeText(entry.key) : ""))
+    .filter(Boolean)
+    .slice(0, 8);
+  const agentIds = agentsRaw
+    .map((entry) => (isRecord(entry) ? normalizeText(entry.agentId) : ""))
+    .filter(Boolean)
+    .slice(0, 8);
 
   const labelParts = [];
   if (channelCount) labelParts.push(`${channelCount} channels`);
   if (sessionCount) labelParts.push(`${sessionCount} sessions`);
   if (agentCount) labelParts.push(`${agentCount} agents`);
   const label = labelParts.length ? labelParts.join(", ") : undefined;
-
-  return [
+  const events: GatewayTraceEvent[] = [
     {
       id: buildSyntheticId(["health", String(ts)]),
       ts,
@@ -190,14 +242,161 @@ function traceFromHealthEvent(payload: unknown): GatewayTraceEvent[] {
         channelCount,
         sessionCount,
         agentCount,
-        durationMs: durationMs ?? undefined,
-        heartbeatSeconds: heartbeatSeconds ?? undefined,
+        durationMs,
+        heartbeatSeconds,
         defaultAgentId: defaultAgentId || undefined,
         channelIds: channelIdsPreview,
-        channelIdsTruncated: channelIds.length > channelIdsPreview.length ? channelIds.length - channelIdsPreview.length : 0,
+        channelNames,
+        channelIdsTruncated:
+          channelIds.length > channelIdsPreview.length ? channelIds.length - channelIdsPreview.length : 0,
+        sessionKeys,
+        agentIds,
       },
     },
   ];
+
+  const gatewayNode = { kind: "gateway" as const, id: "gateway", label: "gateway" };
+  for (const channelId of channelIds.slice(0, 16)) {
+    const summary = isRecord(channels[channelId]) ? channels[channelId] : {};
+    const channelName = normalizeText(channelLabels[channelId]) || channelId;
+    const accounts = isRecord(summary.accounts) ? summary.accounts : {};
+    const accountIds = Object.keys(accounts).filter(Boolean);
+    const configured = readBoolean(summary.configured);
+    const linked = readBoolean(summary.linked);
+    const accountCount = accountIds.length || (normalizeText(summary.accountId) ? 1 : 0);
+    const channelLabelParts = [];
+    if (channelName !== channelId) channelLabelParts.push(channelName);
+    if (configured !== undefined) channelLabelParts.push(configured ? "configured" : "not configured");
+    if (linked !== undefined) channelLabelParts.push(linked ? "linked" : "not linked");
+    if (accountCount > 0) channelLabelParts.push(`${accountCount} accounts`);
+
+    events.push({
+      id: buildSyntheticId(["health", "channel", channelId, String(ts)]),
+      ts,
+      kind: "health.channel",
+      from: gatewayNode,
+      to: { kind: "channel", id: channelId, label: channelName },
+      label: channelLabelParts.length ? channelLabelParts.join(" · ") : undefined,
+      data: {
+        channelId,
+        channelName,
+        configured,
+        linked,
+        accountCount,
+        accountIds: accountIds.slice(0, 8),
+        selectedAccountId: normalizeText(summary.accountId) || undefined,
+        lastProbeAt: readFiniteNumber(summary.lastProbeAt),
+      },
+    });
+  }
+
+  const agentEntries = [...agentsRaw];
+  if (
+    defaultAgentId &&
+    !agentEntries.some((entry) => isRecord(entry) && normalizeText(entry.agentId) === defaultAgentId)
+  ) {
+    agentEntries.unshift({ agentId: defaultAgentId, isDefault: true, sessions });
+  }
+
+  let sessionEdgeCount = 0;
+  for (const entry of agentEntries.slice(0, 12)) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    const agentId = normalizeText(entry.agentId);
+    if (!agentId) {
+      continue;
+    }
+    const agentName = normalizeText(entry.name);
+    const heartbeat = isRecord(entry.heartbeat) ? entry.heartbeat : {};
+    const agentSessions = isRecord(entry.sessions) ? entry.sessions : {};
+    const recentSessions = Array.isArray(agentSessions.recent) ? agentSessions.recent : [];
+    const heartbeatEveryMs = readFiniteNumber(heartbeat.everyMs);
+    const agentSessionCount = readFiniteNumber(agentSessions.count) ?? recentSessions.length;
+    const isDefault =
+      readBoolean(entry.isDefault) === true || (defaultAgentId !== "" && agentId === defaultAgentId);
+    const recentSessionKeys = recentSessions
+      .map((sessionEntry) => (isRecord(sessionEntry) ? normalizeText(sessionEntry.key) : ""))
+      .filter(Boolean)
+      .slice(0, 8);
+    const agentLabelParts = [];
+    if (isDefault) agentLabelParts.push("default");
+    if (heartbeatEveryMs !== undefined && heartbeatEveryMs > 0) {
+      agentLabelParts.push(`heartbeat ${Math.round(heartbeatEveryMs / 1000)}s`);
+    }
+    if (agentSessionCount > 0) agentLabelParts.push(`${agentSessionCount} sessions`);
+
+    events.push({
+      id: buildSyntheticId(["health", "agent", agentId, String(ts)]),
+      ts,
+      kind: "health.agent",
+      from: gatewayNode,
+      to: {
+        kind: "agent",
+        id: agentId,
+        label: agentName ? `${agentName} (${agentId})` : agentId,
+      },
+      label: agentLabelParts.length ? agentLabelParts.join(" · ") : undefined,
+      data: {
+        agentId,
+        agentName: agentName || undefined,
+        isDefault,
+        heartbeatEveryMs,
+        sessionCount: agentSessionCount,
+        sessionPath: normalizeText(agentSessions.path) || undefined,
+        recentSessionKeys,
+      },
+    });
+
+    for (const sessionEntry of recentSessions.slice(0, 6)) {
+      if (!isRecord(sessionEntry)) {
+        continue;
+      }
+      const sessionKey = normalizeText(sessionEntry.key);
+      if (!sessionKey) {
+        continue;
+      }
+      const ageMs = readFiniteNumber(sessionEntry.age);
+      const updatedAt = readFiniteNumber(sessionEntry.updatedAt);
+      const sessionLabel =
+        ageMs !== undefined
+          ? ageMs < 60_000
+            ? `${Math.max(1, Math.round(ageMs / 1000))}s ago`
+            : ageMs < 3_600_000
+              ? `${Math.max(1, Math.round(ageMs / 60_000))}m ago`
+              : ageMs < 86_400_000
+                ? `${Math.max(1, Math.round(ageMs / 3_600_000))}h ago`
+                : `${Math.max(1, Math.round(ageMs / 86_400_000))}d ago`
+          : undefined;
+
+      events.push({
+        id: buildSyntheticId(["health", "session", agentId, sessionKey, String(ts)]),
+        ts,
+        kind: "health.session",
+        from: {
+          kind: "agent",
+          id: agentId,
+          label: agentName ? `${agentName} (${agentId})` : agentId,
+        },
+        to: { kind: "session", id: sessionKey, label: sessionKey },
+        label: sessionLabel,
+        sessionKey,
+        runId: agentId,
+        data: {
+          agentId,
+          sessionKey,
+          updatedAt,
+          ageMs,
+        },
+      });
+      sessionEdgeCount += 1;
+      if (sessionEdgeCount >= 24) {
+        return events;
+      }
+    }
+  }
+
+  return events;
 }
 
 function traceFromChatEvent(payload: unknown): GatewayTraceEvent[] {
@@ -235,6 +434,10 @@ function traceFromChatEvent(payload: unknown): GatewayTraceEvent[] {
   const hasMessage = payload.message !== undefined;
   if (hasMessage) {
     data.hasMessage = true;
+  }
+  const messagePreview = extractMessagePreview(payload.message);
+  if (messagePreview) {
+    data.messagePreview = messagePreview;
   }
 
   return [

@@ -2,6 +2,7 @@ node_modules/
 dist/
 .vite/
 coverage/
+dist-deploy.zip
 
 .DS_Store
 Thumbs.db
@@ -13,5 +14,3 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-package-lock.json

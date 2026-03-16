@@ -1,73 +1,207 @@
-# OpenClaw Gateway Routing Graph (Standalone)
+# OpenClaw Gateway Routing Graph
 
-This is a standalone, real-time routing visualization for an OpenClaw gateway.
+一个独立的、中文优先的 OpenClaw 网关链路可视化项目。
 
-It connects to the gateway WebSocket, listens for:
+它不修改 OpenClaw 主工程代码，而是以外部监控工具的方式，实时观察消息入口、会话流转、智能体处理、工具调用、渠道回写和健康检查等链路行为。
 
-- `trace` events (gateway-side routing trace stream)
-- `agent` events (tool stream), and synthesizes `tool.start` / `tool.result` edges
+## 当前状态
 
-and renders a live SVG routing map (nodes + edges) plus a recent-events list.
+- 当前定义范围内的 **V1 核心功能已经闭环**，可以单独运行、单独部署、单独验收。
+- 后续仍可以继续做界面细化、布局优化和更多业务字段展示，但这些属于增强迭代，不是当前版本可用性的前提。
 
-## Run (dev)
+### 当前已完成
 
-From this folder:
+- 直接连接 OpenClaw 网关 WebSocket
+- 通过 `tools/openclaw-gateway-observer` 连接 HTTP/SSE 观察器
+- 实时链路图，默认常显骨架，有数据时对节点和连线做动态高亮
+- 业务优先视图：入口消息、出口消息、活跃会话、实时链路
+- 技术事件明细：保留完整事件视角用于排障
+- 会话摘要卡片：展示渠道、会话类型、最近入口、最近出口
+- 中文标签规则：可视化配置 `类型 / 原始ID / 中文名`
+- 浏览器本地保存标签规则，修改后立即生效
+- 内置同源 WebSocket 代理，解决浏览器直连网关时常见的 `1006` / 升级失败问题
+- 连接异常的中文包装提示
+- 内置健康检查和周期性健康探测
 
-```bash
-pnpm install
-pnpm dev
-```
+### 当前明确不做
 
-If you don't use pnpm:
+- 不改 OpenClaw 主工程源码
+- 不做旧规则语法兼容
+- 不做兜底式 UI/规则兼容层
+- 不默认展示完整消息正文、完整工具输出或敏感长文本
+
+## 项目原则
+
+- 始终保持独立项目形态，不与 OpenClaw 主工程形成紧耦合
+- 始终按最新交互和最新规则维护，不保留历史兼容写法
+- 始终优先展示业务可读信息，技术细节默认下沉到折叠区
+
+## 运行方式
+
+### 1) 本地开发
+
+在当前目录执行：
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the page, then set:
+默认使用 Vite 本地开发服务。
 
-- **Gateway URL** (example: `ws://127.0.0.1:18789`)
-- **Token** (an operator token with `operator.admin` scope if you want `trace`)
-- **Password** (optional; use if your gateway is configured for password auth)
+### 2) 构建后本地预览
 
-### Remote gateway (recommended: SSH tunnel)
+```bash
+npm run build
+npm run preview
+```
 
-If your gateway is on another host, prefer an SSH tunnel instead of exposing the
-admin WebSocket port to your LAN.
+### 3) 构建后用内置静态服务启动
 
-On your laptop/desktop:
+```bash
+npm run build
+npm run serve
+```
+
+默认监听：
+
+- `HOST=127.0.0.1`
+- `PORT=5173`
+
+### 4) 一条命令构建并启动
+
+```bash
+npm run serve:build
+```
+
+## 连接模式
+
+### 观察器模式（推荐）
+
+先运行 `tools/openclaw-gateway-observer`，再在页面里填：
+
+```text
+http://127.0.0.1:17777
+```
+
+此模式会：
+
+- 先通过 `/events` 获取初始事件
+- 再通过 `/stream` 持续接收实时事件
+
+### 直连网关模式
+
+如果你的网关允许浏览器直接连 WebSocket，可以直接填：
+
+```text
+ws://127.0.0.1:18789
+```
+
+如网关启用了认证，再补充：
+
+- Token
+- Password
+
+## 浏览器直连报 `1006` 怎么办
+
+有些网关或代理会拒绝浏览器跨域 WebSocket 升级。这时可以使用本项目自带的同源 WS 代理。
+
+启动方式：
+
+```bash
+GATEWAY_URL=ws://127.0.0.1:18789 npm run serve:build
+```
+
+然后在页面里把地址填成：
+
+```text
+ws://127.0.0.1:5173/__routing_graph/ws
+```
+
+这样浏览器只连当前页面同源地址，由本项目服务端转发到真实网关。
+
+## 远程网关建议
+
+如果网关部署在远端机器，推荐优先使用 SSH 隧道，而不是把管理 WebSocket 端口直接暴露到局域网。
+
+示例：
 
 ```bash
 ssh -N -L 18789:127.0.0.1:18789 root@<gateway-host>
 ```
 
-Then use:
+之后在页面中使用：
 
-- **Gateway URL**: `ws://127.0.0.1:18789`
-- **Token/Password**: same values as the gateway host config (`gateway.auth.token` /
-  `OPENCLAW_GATEWAY_TOKEN` or `gateway.auth.password` / `OPENCLAW_GATEWAY_PASSWORD`)
-
-## Browser disconnected (1006)? Use the built-in WS proxy
-
-Some gateway forks reject cross-origin browser WebSockets (often as an HTTP 403
-upgrade failure, which the browser reports as close code `1006` with no reason).
-
-This project includes a same-origin WS proxy that strips the browser `Origin`
-header from the upstream gateway connection:
-
-```bash
-# build the UI and start a local server with a WS proxy
-GATEWAY_URL=ws://127.0.0.1:18789 npm run serve:build
+```text
+ws://127.0.0.1:18789
 ```
 
-Then in the UI, set:
+## 界面说明
 
-- **Gateway URL**: `ws://<ui-host>:5173/__routing_graph/ws`
+### 实时链路图
 
-## Notes
+- 默认始终显示链路骨架
+- 新事件进入时，对真实节点和真实连线做动态高亮
+- 重点关注入口、智能体、会话、渠道、工具之间的流转
 
-- The gateway must broadcast `trace` events for full routing visibility (RPC + message in/out).
-  If you only have `agent` tool events, you'll still see tool edges, but not full message routing.
-- This UI intentionally avoids rendering full message bodies / tool outputs; it prefers small metadata
-  so the graph stays readable and safer to run.
+### 业务板块
+
+- 关键指标
+- 最新入口消息
+- 最新出口消息
+- 活跃会话摘要
+
+### 技术板块
+
+- 高级设置
+- 技术事件明细
+- 原始技术详情折叠查看
+
+## 标签规则
+
+标签规则采用当前唯一有效格式：
+
+- `类型`
+- `原始ID`
+- `中文名`
+
+例如：
+
+- `channel | wecom | 企业微信`
+- `channel | feishu | 飞书渠道`
+- `agent | main | 主智能体`
+- `session | agent:main:wecom:group:room-1 | 产品群会话`
+
+当前界面中已经改为可视化规则编辑，不再推荐手写文本块。
+
+## 目录结构
+
+```text
+src/                 前端源码
+server/              构建产物静态服务和 WS 代理
+dist/                构建输出
+index.html           入口页
+vite.config.ts       Vite 配置
+```
+
+## 适用边界
+
+这个项目适合用来：
+
+- 演示 OpenClaw 网关消息链路
+- 观察渠道到智能体的会话流转
+- 验收工具调用、渠道回写和会话活动
+- 做现场驾驶舱和实时监控屏
+
+这个项目当前不适合用来：
+
+- 替代日志平台
+- 替代审计系统
+- 长期存储全量原始事件
+- 做侵入式网关内核改造
+
+## 开发说明
+
+- 当前仓库为独立项目仓库
+- 当前版本以“可运行、可部署、可验收”为主
+- 如继续扩展，优先方向应是：可读性、布局稳定性、更多业务字段，而不是兼容历史写法

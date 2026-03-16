@@ -1,7 +1,7 @@
 import type { GatewayTraceEvent, GatewayTraceNode, RoutingFilters } from "./routing-types.ts";
 
-export const GRAPH_W = 920;
-export const GRAPH_H = 420;
+export const GRAPH_W = 1260;
+export const GRAPH_H = 660;
 export const GRAPH_PAD = 40;
 export const EDGE_LIMIT = 120;
 
@@ -43,6 +43,7 @@ export type GraphNode = {
   id: string;
   label: string;
   lastTs: number;
+  lastAnimatedTs: number | null;
   activity: number;
   x: number;
   y: number;
@@ -56,6 +57,7 @@ export type GraphEdge = {
   toKey: string;
   count: number;
   lastTs: number;
+  lastAnimatedTs: number | null;
 };
 
 function normalizeNodeLabel(node: GatewayTraceNode): string {
@@ -80,6 +82,19 @@ function isToolKind(kind: string): boolean {
   return kind.startsWith("tool.");
 }
 
+function shouldAnimateEventKind(kind: string): boolean {
+  if (kind === "message.in" || kind === "message.out") {
+    return true;
+  }
+  if (kind.startsWith("message.chat.")) {
+    return true;
+  }
+  if (kind.startsWith("tool.")) {
+    return true;
+  }
+  return false;
+}
+
 export function shouldIncludeEvent(evt: GatewayTraceEvent, filters: RoutingFilters): boolean {
   if (isRpcKind(evt.kind)) {
     return filters.rpc;
@@ -95,11 +110,16 @@ export function shouldIncludeEvent(evt: GatewayTraceEvent, filters: RoutingFilte
 
 function resolveNodeGroup(kind: string): string {
   if (kind === "client") return "client";
+  if (kind === "gateway") return "gateway";
   if (kind === "rpc") return "rpc";
+  if (kind === "agent") return "agent";
+  if (kind === "session") return "session";
   if (kind === "channel") return "channel";
   if (kind === "tool") return "tool";
-  if (kind === "session" || kind === "agent" || kind === "gateway") return "session";
   if (kind === "node") return "node";
+  if (kind === "device") return "node";
+  if (kind === "cron") return "other";
+  if (kind === "presence") return "other";
   return "other";
 }
 
@@ -117,22 +137,26 @@ function layoutNodes(nodes: Array<Omit<GraphNode, "x" | "y">>) {
   }
 
   const xByGroup: Record<string, number> = {
-    client: 100,
-    rpc: 290,
-    session: 480,
-    tool: 480,
-    channel: 670,
-    node: 850,
-    other: 480,
+    client: 90,
+    gateway: 210,
+    rpc: 380,
+    agent: 560,
+    session: 860,
+    tool: 680,
+    channel: 1080,
+    node: 1190,
+    other: 1080,
   };
 
   const yRanges: Record<string, { top: number; bottom: number }> = {
     client: { top: GRAPH_PAD, bottom: GRAPH_H - GRAPH_PAD },
+    gateway: { top: GRAPH_PAD, bottom: GRAPH_H - GRAPH_PAD },
     rpc: { top: GRAPH_PAD, bottom: GRAPH_H - GRAPH_PAD },
-    channel: { top: GRAPH_PAD, bottom: GRAPH_H - GRAPH_PAD },
-    node: { top: GRAPH_PAD, bottom: GRAPH_H - GRAPH_PAD },
-    session: { top: GRAPH_PAD, bottom: GRAPH_H * 0.55 },
-    tool: { top: GRAPH_H * 0.62, bottom: GRAPH_H - GRAPH_PAD },
+    agent: { top: GRAPH_PAD + 16, bottom: GRAPH_H * 0.46 },
+    channel: { top: GRAPH_PAD + 10, bottom: GRAPH_H - GRAPH_PAD },
+    node: { top: GRAPH_PAD + 10, bottom: GRAPH_H - GRAPH_PAD },
+    session: { top: GRAPH_PAD + 6, bottom: GRAPH_H * 0.62 },
+    tool: { top: GRAPH_H * 0.62, bottom: GRAPH_H - GRAPH_PAD - 10 },
     other: { top: GRAPH_PAD, bottom: GRAPH_H - GRAPH_PAD },
   };
 
@@ -206,6 +230,7 @@ export function buildGraph(events: GatewayTraceEvent[], now: number) {
       inferTraceEndpoints({ kind, runId: safeString(evt.runId).trim(), sessionKey: safeString(evt.sessionKey).trim() }).to;
 
     const ts = typeof evt.ts === "number" && Number.isFinite(evt.ts) ? evt.ts : now;
+    const shouldAnimate = shouldAnimateEventKind(kind);
     const fromKey = nodeKey(from);
     const toKey = nodeKey(to);
 
@@ -218,6 +243,7 @@ export function buildGraph(events: GatewayTraceEvent[], now: number) {
           id: node.id,
           label: normalizeNodeLabel(node),
           lastTs: ts,
+          lastAnimatedTs: shouldAnimate ? ts : null,
           activity: 1,
         });
         return;
@@ -225,6 +251,9 @@ export function buildGraph(events: GatewayTraceEvent[], now: number) {
       existing.activity += 1;
       if (ts > existing.lastTs) {
         existing.lastTs = ts;
+      }
+      if (shouldAnimate && (existing.lastAnimatedTs === null || ts > existing.lastAnimatedTs)) {
+        existing.lastAnimatedTs = ts;
       }
     };
     upsertNode(from, fromKey);
@@ -244,11 +273,15 @@ export function buildGraph(events: GatewayTraceEvent[], now: number) {
         toKey,
         count: 1,
         lastTs: ts,
+        lastAnimatedTs: shouldAnimate ? ts : null,
       });
     } else {
       existing.count += 1;
       if (ts > existing.lastTs) {
         existing.lastTs = ts;
+      }
+      if (shouldAnimate && (existing.lastAnimatedTs === null || ts > existing.lastAnimatedTs)) {
+        existing.lastAnimatedTs = ts;
       }
       if (!existing.label && edgeLabel) {
         existing.label = edgeLabel;
@@ -286,10 +319,32 @@ export function buildGraph(events: GatewayTraceEvent[], now: number) {
 }
 
 export function colorForEventKind(kind: string): string {
-  if (isRpcKind(kind)) return "var(--routing-rpc)";
-  if (isMessageKind(kind)) return "var(--routing-message)";
-  if (isToolKind(kind)) return "var(--routing-tool)";
-  return "var(--routing-other)";
+  if (isRpcKind(kind)) return "#7c3aed";
+  if (isMessageKind(kind)) return "#2563eb";
+  if (isToolKind(kind)) return "#d97706";
+  if (kind.startsWith("health.")) return "#0f766e";
+  if (kind.startsWith("system.")) return "#64748b";
+  return "#64748b";
+}
+
+export function fillForNodeKind(kind: string): string {
+  if (kind === "gateway") return "#ede9fe";
+  if (kind === "rpc") return "#f3e8ff";
+  if (kind === "session" || kind === "agent") return "#dbeafe";
+  if (kind === "tool") return "#ffedd5";
+  if (kind === "channel") return "#dcfce7";
+  if (kind === "node") return "#fee2e2";
+  return "#e2e8f0";
+}
+
+export function strokeForNodeKind(kind: string): string {
+  if (kind === "gateway") return "#7c3aed";
+  if (kind === "rpc") return "#8b5cf6";
+  if (kind === "session" || kind === "agent") return "#2563eb";
+  if (kind === "tool") return "#d97706";
+  if (kind === "channel") return "#16a34a";
+  if (kind === "node") return "#dc2626";
+  return "#64748b";
 }
 
 export function truncateLabel(label: string, max = 24): string {
@@ -298,24 +353,24 @@ export function truncateLabel(label: string, max = 24): string {
 
 export function formatRelativeTimestamp(ts: number): string {
   const delta = Math.max(0, Date.now() - ts);
-  if (delta < 1500) return "now";
+  if (delta < 1500) return "刚刚";
   const sec = Math.floor(delta / 1000);
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 60) return `${sec} 秒前`;
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return `${min} 分钟前`;
   const hr = Math.floor(min / 60);
-  if (hr < 48) return `${hr}h ago`;
+  if (hr < 48) return `${hr} 小时前`;
   const day = Math.floor(hr / 24);
-  return `${day}d ago`;
+  return `${day} 天前`;
 }
 
 export function formatEdgeTitle(edge: GraphEdge, from: GraphNode, to: GraphNode) {
   const age = formatRelativeTimestamp(edge.lastTs);
-  const label = edge.label ? ` — ${edge.label}` : "";
-  return `${edge.kind} (${edge.count}) — ${from.label} → ${to.label}${label} — ${age}`;
+  const label = edge.label ? ` · ${edge.label}` : "";
+  return `${edge.kind}（${edge.count}） · ${from.label} → ${to.label}${label} · ${age}`;
 }
 
 export function formatNodeTitle(node: GraphNode) {
   const age = formatRelativeTimestamp(node.lastTs);
-  return `${node.kind}:${node.id} — ${node.activity} events — ${age}`;
+  return `${node.kind}:${node.id} · ${node.activity} 次事件 · ${age}`;
 }
