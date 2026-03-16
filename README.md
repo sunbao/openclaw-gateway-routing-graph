@@ -9,6 +9,18 @@
 
 它不修改 OpenClaw 主工程代码，而是以外部监控工具的方式，实时观察消息入口、会话流转、智能体处理、工具调用、渠道回写和健康检查等链路行为。
 
+> 下一阶段规划已经公开：`ROADMAP.md` 与 `OPENSPEC.md`  
+> 其中策略控制系统的正式开发触发条件为：**GitHub Star > 100**
+
+## 项目导航
+
+- 版本路线：`ROADMAP.md`
+- 公开规格：`OPENSPEC.md`
+- 变更说明：`CHANGELOG.md`
+- 发布文案：`RELEASE_NOTES.md`
+- 参与协作：`CONTRIBUTING.md`
+- 开源协议：`LICENSE`
+
 ## 界面预览
 
 ![Dashboard Preview](docs/assets/dashboard-preview.svg)
@@ -42,6 +54,13 @@ GATEWAY_URL=ws://127.0.0.1:18789 npm run serve:build
 - 后续仍可以继续做界面细化、布局优化和更多业务字段展示，但这些属于增强迭代，不是当前版本可用性的前提。
 - 当前仓库已经整理为 **可公开 clone、可直接安装、可直接运行** 的独立开源项目。
 
+## 后续规划
+
+- 已公开路线图：见 `ROADMAP.md`
+- 已公开需求规格草案：见 `OPENSPEC.md`
+- 下一阶段重点是“风险治理与策略控制”，不是继续堆叠零散界面修改
+- 正式进入该阶段开发的门槛为：**GitHub Star > 100**
+
 ### 当前已完成
 
 - 直接连接 OpenClaw 网关 WebSocket
@@ -70,6 +89,8 @@ GATEWAY_URL=ws://127.0.0.1:18789 npm run serve:build
 - 当前首版变更说明：见 `CHANGELOG.md`
 - 当前首版发布文案：见 `RELEASE_NOTES.md`
 - 外部协作说明：见 `CONTRIBUTING.md`
+- 后续版本路线：见 `ROADMAP.md`
+- 策略控制公开规格：见 `OPENSPEC.md`
 
 ## 项目原则
 
