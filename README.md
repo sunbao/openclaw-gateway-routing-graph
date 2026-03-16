@@ -1,8 +1,40 @@
 # OpenClaw Gateway Routing Graph
 
+[![Release](https://img.shields.io/github/v/release/sunbao/openclaw-gateway-routing-graph?label=release)](https://github.com/sunbao/openclaw-gateway-routing-graph/releases/tag/v2026.3.16)
+[![License](https://img.shields.io/github/license/sunbao/openclaw-gateway-routing-graph)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-22%2B-0F766E)](./package.json)
+[![Build](https://img.shields.io/badge/build-vite-646CFF)](./package.json)
+
 一个独立的、中文优先的 OpenClaw 网关链路可视化项目。
 
 它不修改 OpenClaw 主工程代码，而是以外部监控工具的方式，实时观察消息入口、会话流转、智能体处理、工具调用、渠道回写和健康检查等链路行为。
+
+## 界面预览
+
+![Dashboard Preview](docs/assets/dashboard-preview.svg)
+
+## 快速开始
+
+```bash
+npm install
+npm run dev
+```
+
+打开页面后，优先使用观察器模式接入：
+
+```text
+http://127.0.0.1:17777
+```
+
+如果需要浏览器同源 WebSocket 代理：
+
+```bash
+GATEWAY_URL=ws://127.0.0.1:18789 npm run serve:build
+```
+
+## 架构图
+
+![Architecture Overview](docs/assets/architecture-overview.svg)
 
 ## 当前状态
 

@@ -1,0 +1,75 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1280" y2="720" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F4F7FF"/>
+      <stop offset="1" stop-color="#EEF4FF"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#F8FBFF"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#1E293B" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1L9 5L1 9" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1L9 5L1 9" stroke="#0F766E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M1 1L9 5L1 9" stroke="#D97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect width="1280" height="720" rx="24" fill="url(#bg)"/>
+  <text x="56" y="70" fill="#0F172A" font-size="34" font-weight="700" font-family="Segoe UI, Arial, sans-serif">OpenClaw Gateway Routing Graph · 架构概览</text>
+  <text x="56" y="106" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">独立监控项目，不修改 OpenClaw 主工程；通过网关或观察器采集事件，再以中文业务驾驶舱方式展示。</text>
+
+  <g filter="url(#shadow)">
+    <rect x="56" y="154" width="268" height="188" rx="24" fill="url(#card)"/>
+    <text x="84" y="198" fill="#2563EB" font-size="18" font-weight="700" font-family="Segoe UI, Arial, sans-serif">数据来源</text>
+    <text x="84" y="242" fill="#0F172A" font-size="28" font-weight="700" font-family="Segoe UI, Arial, sans-serif">OpenClaw Gateway</text>
+    <text x="84" y="278" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- WebSocket 直连</text>
+    <text x="84" y="308" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- Token / Password 认证</text>
+
+    <rect x="56" y="386" width="268" height="188" rx="24" fill="url(#card)"/>
+    <text x="84" y="430" fill="#0F766E" font-size="18" font-weight="700" font-family="Segoe UI, Arial, sans-serif">推荐入口</text>
+    <text x="84" y="474" fill="#0F172A" font-size="28" font-weight="700" font-family="Segoe UI, Arial, sans-serif">Gateway Observer</text>
+    <text x="84" y="510" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- HTTP / SSE</text>
+    <text x="84" y="540" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 浏览器友好</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="408" y="206" width="460" height="316" rx="28" fill="url(#card)"/>
+    <text x="438" y="250" fill="#7C3AED" font-size="18" font-weight="700" font-family="Segoe UI, Arial, sans-serif">独立监控层</text>
+    <text x="438" y="296" fill="#0F172A" font-size="34" font-weight="700" font-family="Segoe UI, Arial, sans-serif">Routing Graph Dashboard</text>
+    <text x="438" y="338" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 事件归一化：消息 / 会话 / 工具 / 健康检查</text>
+    <text x="438" y="372" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 中文标签规则：类型 / 原始ID / 中文名</text>
+    <text x="438" y="406" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 实时链路图：骨架常显，动态高亮真实链路</text>
+    <text x="438" y="440" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 业务优先：入口、出口、活跃会话、关键指标</text>
+    <text x="438" y="474" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 技术下沉：健康检查、原始事件、技术详情折叠</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="952" y="154" width="272" height="188" rx="24" fill="url(#card)"/>
+    <text x="980" y="198" fill="#D97706" font-size="18" font-weight="700" font-family="Segoe UI, Arial, sans-serif">业务观测</text>
+    <text x="980" y="242" fill="#0F172A" font-size="28" font-weight="700" font-family="Segoe UI, Arial, sans-serif">驾驶舱视图</text>
+    <text x="980" y="278" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 实时链路图</text>
+    <text x="980" y="308" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 最新入口 / 出口</text>
+
+    <rect x="952" y="386" width="272" height="188" rx="24" fill="url(#card)"/>
+    <text x="980" y="430" fill="#DC2626" font-size="18" font-weight="700" font-family="Segoe UI, Arial, sans-serif">排障视角</text>
+    <text x="980" y="474" fill="#0F172A" font-size="28" font-weight="700" font-family="Segoe UI, Arial, sans-serif">技术明细</text>
+    <text x="980" y="510" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 原始事件</text>
+    <text x="980" y="540" fill="#475569" font-size="18" font-family="Segoe UI, Arial, sans-serif">- 健康检查 / 异常提示</text>
+  </g>
+
+  <path d="M324 248C356 248 370 248 408 288" stroke="#2563EB" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 10" marker-end="url(#arrowBlue)"/>
+  <path d="M324 480C362 480 374 450 408 430" stroke="#0F766E" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 10" marker-end="url(#arrowGreen)"/>
+  <path d="M868 316C904 300 914 278 952 248" stroke="#D97706" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 10" marker-end="url(#arrowOrange)"/>
+  <path d="M868 420C906 430 916 452 952 480" stroke="#D97706" stroke-width="4" stroke-linecap="round" stroke-dasharray="10 10" marker-end="url(#arrowOrange)"/>
+
+  <rect x="56" y="624" width="1168" height="56" rx="18" fill="#FFFFFF" fill-opacity="0.7"/>
+  <text x="84" y="659" fill="#334155" font-size="18" font-family="Segoe UI, Arial, sans-serif">核心理念：外部探针式监控、中文业务视图优先、技术细节默认下沉、始终保持最新规则与最新行为。</text>
+</svg>
