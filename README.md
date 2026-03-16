@@ -36,6 +36,7 @@
 - GitHub 仓库：`sunbao/openclaw-gateway-routing-graph`
 - 授权协议：MIT，见 `LICENSE`
 - 当前首版变更说明：见 `CHANGELOG.md`
+- 当前首版发布文案：见 `RELEASE_NOTES.md`
 
 ## 项目原则
 
