@@ -69,6 +69,7 @@ GATEWAY_URL=ws://127.0.0.1:18789 npm run serve:build
 - 授权协议：MIT，见 `LICENSE`
 - 当前首版变更说明：见 `CHANGELOG.md`
 - 当前首版发布文案：见 `RELEASE_NOTES.md`
+- 外部协作说明：见 `CONTRIBUTING.md`
 
 ## 项目原则
 
