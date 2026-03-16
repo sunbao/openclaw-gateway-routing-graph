@@ -11,11 +11,15 @@
 
 > 下一阶段规划已经公开：`ROADMAP.md` 与 `OPENSPEC.md`  
 > 其中策略控制系统的正式开发触发条件为：**GitHub Star > 100**
+>
+> 公开讨论入口：Issue #1  
+> https://github.com/sunbao/openclaw-gateway-routing-graph/issues/1
 
 ## 项目导航
 
 - 版本路线：`ROADMAP.md`
 - 公开规格：`OPENSPEC.md`
+- 规划讨论：Issue #1
 - 变更说明：`CHANGELOG.md`
 - 发布文案：`RELEASE_NOTES.md`
 - 参与协作：`CONTRIBUTING.md`
